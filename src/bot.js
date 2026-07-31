@@ -109,15 +109,45 @@ bot.action('verify_18', async (ctx) => {
 
   await ctx.editMessageText(sharePromptText, {
     parse_mode: 'Markdown',
-    ...getShareToUnlockKeyboard(botUsername)
+    ...getShareToUnlockKeyboard()
   });
 });
 
 /**
- * Verify Shares Callback
+ * Trigger Share Action Callback
+ */
+bot.action('trigger_share', async (ctx) => {
+  const userId = ctx.from.id;
+  shareClickedUsers.add(userId);
+  await ctx.answerCbQuery('📲 Opening Telegram Group Share...');
+
+  const shareText = encodeURIComponent(`🌴 Join Mallu Chat - #1 Anonymous Random Chat Bot for Malayalis! Connect 100% anonymously for text & photo chat: https://t.me/${botUsername}`);
+  const shareUrl = `https://t.me/share/url?url=${shareText}`;
+
+  return ctx.reply('📲 *Click the link below to share to 2 groups or friends:*', {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.url('↗️ Tap Here to Share to Telegram Groups', shareUrl)],
+      [Markup.button.callback('✅ I Have Shared (Unlock Chat)', 'verify_shares')]
+    ])
+  });
+});
+
+/**
+ * Verify Shares Callback - Strictly enforces Share button click first
  */
 bot.action('verify_shares', async (ctx) => {
   const userId = ctx.from.id;
+
+  // STRICT CHECK: Did the user tap the share button?
+  if (!shareClickedUsers.has(userId)) {
+    await ctx.answerCbQuery('⚠️ You must click the Share button first!', { show_alert: true });
+    return ctx.reply('⚠️ *Access Denied*: Please tap the "📲 Share to 2 Groups / Friends" button above first to share the bot link!', {
+      parse_mode: 'Markdown',
+      ...getShareToUnlockKeyboard()
+    });
+  }
+
   unlockedShareUsers.add(userId);
   await ctx.answerCbQuery('🎉 Chat Unlocked!');
   await ctx.editMessageText('🎉 *SHARE VERIFIED! CHAT UNLOCKED!*\n\nThank you for sharing! You can now start matching with partners.', { parse_mode: 'Markdown' });
