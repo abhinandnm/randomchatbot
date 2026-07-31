@@ -1,8 +1,18 @@
+const http = require('http');
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const queue = require('./queue');
 const session = require('./session');
 const admin = require('./admin');
+
+// Lightweight HTTP server for Render Web Service health checks
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Mallu Chat Telegram Bot is Live & Active!\n');
+}).listen(PORT, () => {
+  console.log(`🌐 Health check server listening on port ${PORT}`);
+});
 const {
   getMainMenuKeyboard,
   getActiveChatKeyboard,
