@@ -27,10 +27,11 @@ const {
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID ? Number(process.env.ADMIN_ID) : null;
 
-// Track unique users, 18+ verified status, and share-unlocked status
+// Track unique users, 18+ verified status, share-unlocked status, and share button taps
 const registeredUsers = new Set();
 const verifiedUsers = new Set();
 const unlockedShareUsers = new Set();
+const shareClickedUsers = new Set();
 
 let botUsername = 'MalluMatchBot';
 
