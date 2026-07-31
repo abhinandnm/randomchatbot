@@ -47,6 +47,7 @@ const getAdminKeyboard = () => {
 const get18PlusVerificationKeyboard = () => {
   return Markup.inlineKeyboard([
     [Markup.button.callback('✅ I am 18+ & Agree to Terms', 'verify_18')],
+    [Markup.button.callback('📄 Read Terms of Service', 'show_terms')],
     [Markup.button.callback('❌ Exit (Under 18)', 'reject_18')]
   ]);
 };

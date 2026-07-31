@@ -99,6 +99,29 @@ bot.action('reject_18', async (ctx) => {
 });
 
 /**
+ * TERMS OF SERVICE Command & Action
+ */
+const sendTerms = async (ctx) => {
+  if (ctx.callbackQuery) {
+    await ctx.answerCbQuery();
+  }
+
+  const termsText = 
+    `📜 *MALLU MATCH - TERMS OF SERVICE & PRIVACY POLICY*\n\n` +
+    `By accessing or using Mallu Match Telegram Bot, you agree to comply with the following Terms of Service:\n\n` +
+    `1. *Age Limit (18+)*: You must be at least 18 years of age to use this bot.\n\n` +
+    `2. *Zero Tolerance Policy*: Any transmission of CSAM, non-consensual content, hate speech, threats, fraud, phishing links, or harassment is strictly prohibited.\n\n` +
+    `3. *Moderation & Enforcement*: Violations will result in an immediate, permanent ban of your Telegram User ID without warning and reporting to authorities when applicable.\n\n` +
+    `4. *User Privacy*: Messages are anonymously relayed between matched users. Do not share personal identity details, phone numbers, or passwords with strangers.\n\n` +
+    `5. *Reporting*: Use the "🚨 Report Partner" button anytime to report abusive users to the moderation team.`;
+
+  return ctx.replyWithMarkdown(termsText);
+};
+
+bot.command('terms', sendTerms);
+bot.action('show_terms', sendTerms);
+
+/**
  * HELP Command & Rules
  */
 const sendHelp = async (ctx) => {
@@ -112,6 +135,7 @@ const sendHelp = async (ctx) => {
     `/next - Skip to next partner\n` +
     `/stop - End current chat\n` +
     `/report - Report current partner for abuse\n` +
+    `/terms - View Terms of Service\n` +
     `/help - View help & guidelines`;
 
   return ctx.replyWithMarkdownV2(
