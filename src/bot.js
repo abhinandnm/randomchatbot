@@ -14,6 +14,7 @@ const { Telegraf } = require('telegraf');
 const queue = require('./queue');
 const session = require('./session');
 const admin = require('./admin');
+const aiPartner = require('./ai_partner');
 const {
   getMainMenuKeyboard,
   getActiveChatKeyboard,
@@ -165,8 +166,8 @@ const startSearch = async (ctx) => {
     return ctx.reply(`🚫 You are restricted from starting a chat${timeText}.\nReason: ${banCheck.reason}`);
   }
 
-  // Check if user is already in a chat
-  if (session.isInChat(userId)) {
+  // Check if user is already in a chat or AI chat
+  if (session.isInChat(userId) || aiPartner.isAIChat(userId)) {
     return ctx.reply('⚠️ You are already in a chat! Tap "⏭ Next Partner" or "⏹ End Chat" first.', getActiveChatKeyboard());
   }
 
@@ -180,11 +181,18 @@ const startSearch = async (ctx) => {
     ...getSearchingKeyboard()
   });
 
-  // Attempt to match
+  // Attempt to match with a real human first
   const result = queue.addToQueue(userId);
 
   if (result.matched) {
+    // REAL HUMAN MATCH FOUND!
     const partnerId = result.partnerId;
+
+    // If partner was chatting with AI, end their AI chat session first
+    if (aiPartner.isAIChat(partnerId)) {
+      aiPartner.endAISession(partnerId);
+    }
+
     session.createSession(userId, partnerId);
 
     const matchMessage = 
@@ -203,6 +211,31 @@ const startSearch = async (ctx) => {
       parse_mode: 'Markdown',
       ...getActiveChatKeyboard()
     }).catch(() => {});
+  } else {
+    // NO HUMAN USERS WAITING: START AI STRANGER PERSONA CHAT
+    const persona = aiPartner.startAISession(userId);
+
+    const matchMessage = 
+      `🎉 *Partner Connected!*\n\n` +
+      `Say Hi! Be friendly and respectful.\n` +
+      `Use the buttons below to skip or leave anytime.`;
+
+    await ctx.reply(matchMessage, {
+      parse_mode: 'Markdown',
+      ...getActiveChatKeyboard()
+    });
+
+    // Simulate typing delay for AI greeting
+    setTimeout(async () => {
+      if (aiPartner.isAIChat(userId)) {
+        await ctx.sendChatAction('typing').catch(() => {});
+        setTimeout(async () => {
+          if (aiPartner.isAIChat(userId)) {
+            await ctx.reply(persona.greeting).catch(() => {});
+          }
+        }, 1000);
+      }
+    }, 800);
   }
 };
 
@@ -220,7 +253,7 @@ const cancelSearch = async (ctx) => {
     return ctx.reply('❌ Search cancelled.', getMainMenuKeyboard());
   }
 
-  if (session.isInChat(userId)) {
+  if (session.isInChat(userId) || aiPartner.isAIChat(userId)) {
     return ctx.reply('⚠️ You are currently in a chat. Use "⏹ End Chat" to leave.', getActiveChatKeyboard());
   }
 
@@ -238,6 +271,12 @@ const stopChat = async (ctx) => {
   if (queue.isInQueue(userId)) {
     queue.removeFromQueue(userId);
     return ctx.reply('❌ Search cancelled.', getMainMenuKeyboard());
+  }
+
+  // End AI session if in AI chat
+  if (aiPartner.isAIChat(userId)) {
+    aiPartner.endAISession(userId);
+    return ctx.reply('⏹ You ended the chat.', getMainMenuKeyboard());
   }
 
   if (!session.isInChat(userId)) {
@@ -264,7 +303,10 @@ bot.hears('⏹ End Chat', stopChat);
 const nextPartner = async (ctx) => {
   const userId = ctx.from.id;
 
-  if (session.isInChat(userId)) {
+  if (aiPartner.isAIChat(userId)) {
+    aiPartner.endAISession(userId);
+    await ctx.reply('⏭ You skipped the current chat.', getMainMenuKeyboard());
+  } else if (session.isInChat(userId)) {
     const partnerId = session.endSession(userId);
     await ctx.reply('⏭ You skipped the current chat.', getMainMenuKeyboard());
     if (partnerId) {
@@ -272,7 +314,7 @@ const nextPartner = async (ctx) => {
     }
   }
 
-  // Immediately start searching for next partner
+  // Immediately start searching for next partner (picks fresh AI persona or real user)
   return startSearch(ctx);
 };
 
@@ -284,6 +326,12 @@ bot.hears('⏭ Next Partner', nextPartner);
  */
 const reportPartner = async (ctx) => {
   const userId = ctx.from.id;
+
+  if (aiPartner.isAIChat(userId)) {
+    aiPartner.endAISession(userId);
+    await ctx.reply('🚨 Partner reported. Searching for a new partner...', getSearchingKeyboard());
+    return startSearch(ctx);
+  }
 
   if (!session.isInChat(userId)) {
     return ctx.reply('⚠️ You are not in an active chat to report anyone.', getMainMenuKeyboard());
@@ -411,6 +459,9 @@ bot.command('ban', async (ctx) => {
       await bot.telegram.sendMessage(partnerId, '⏹ Chat ended by system administrator.', getMainMenuKeyboard()).catch(() => {});
     }
   }
+  if (aiPartner.isAIChat(targetId)) {
+    aiPartner.endAISession(targetId);
+  }
   queue.removeFromQueue(targetId);
 
   // Apply ban
@@ -445,6 +496,9 @@ bot.command('restrict', async (ctx) => {
     if (partnerId) {
       await bot.telegram.sendMessage(partnerId, '⏹ Chat ended by system administrator.', getMainMenuKeyboard()).catch(() => {});
     }
+  }
+  if (aiPartner.isAIChat(targetId)) {
+    aiPartner.endAISession(targetId);
   }
   queue.removeFromQueue(targetId);
 
@@ -505,6 +559,12 @@ bot.command('kick', async (ctx) => {
     return ctx.reply(`✅ Active chat session for user \`${targetId}\` kicked.`, { parse_mode: 'Markdown' });
   }
 
+  if (aiPartner.isAIChat(targetId)) {
+    aiPartner.endAISession(targetId);
+    await bot.telegram.sendMessage(targetId, '⏹ Chat ended by admin.', getMainMenuKeyboard()).catch(() => {});
+    return ctx.reply(`✅ AI chat session for user \`${targetId}\` kicked.`, { parse_mode: 'Markdown' });
+  }
+
   if (queue.isInQueue(targetId)) {
     queue.removeFromQueue(targetId);
     return ctx.reply(`✅ User \`${targetId}\` removed from waiting queue.`, { parse_mode: 'Markdown' });
@@ -551,8 +611,7 @@ bot.hears('📢 Broadcast Message', async (ctx) => {
 });
 
 /**
- * MESSAGE RELAYING ENGINE
- * Relays all incoming text, photos, audio, voice notes, stickers, videos, and documents to active partner
+ * MESSAGE RELAYING & AI CHAT ENGINE
  */
 bot.on('message', async (ctx) => {
   const userId = ctx.from.id;
@@ -577,6 +636,18 @@ bot.on('message', async (ctx) => {
     }
   }
 
+  // AI CHAT RESPONDER
+  if (aiPartner.isAIChat(userId)) {
+    await ctx.sendChatAction('typing').catch(() => {});
+    setTimeout(async () => {
+      if (aiPartner.isAIChat(userId)) {
+        const responseText = aiPartner.generateResponse(userId, ctx.message ? ctx.message.text : '');
+        await ctx.reply(responseText).catch(() => {});
+      }
+    }, 1200);
+    return;
+  }
+
   // If user is waiting in queue
   if (queue.isInQueue(userId)) {
     return ctx.reply('⏳ Please wait, searching for a chat partner...', getSearchingKeyboard());
@@ -593,7 +664,7 @@ bot.on('message', async (ctx) => {
     return ctx.reply('⚠️ Session expired or partner disconnected.', getMainMenuKeyboard());
   }
 
-  // Safely relay/copy message anonymously to partner
+  // Safely relay/copy message anonymously to real human partner
   try {
     await ctx.copyMessage(partnerId);
   } catch (err) {
