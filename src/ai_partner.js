@@ -58,6 +58,24 @@ class AIPartnerManager {
   constructor() {
     // Map of userId -> { personaIndex: number, stepIndex: number }
     this.userAISessions = new Map();
+    // Admin toggle for AI bot companion fallback (default: true)
+    this.aiEnabled = true;
+  }
+
+  /**
+   * Enable or disable AI bot fallback
+   * @param {boolean} status 
+   */
+  setAIEnabled(status) {
+    this.aiEnabled = Boolean(status);
+  }
+
+  /**
+   * Check if AI bot fallback is enabled by admin
+   * @returns {boolean}
+   */
+  isAIEnabled() {
+    return this.aiEnabled;
   }
 
   /**

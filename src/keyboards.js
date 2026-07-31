@@ -34,9 +34,11 @@ const getSearchingKeyboard = () => {
 /**
  * Admin Panel Keyboard for owner/admin
  */
-const getAdminKeyboard = () => {
+const getAdminKeyboard = (aiStatus = true) => {
+  const aiButtonText = aiStatus ? '🤖 AI Bot: ON (Click to Disable)' : '🤖 AI Bot: OFF (Click to Enable)';
   return Markup.keyboard([
     ['📊 Admin Stats', '🚫 Ban List'],
+    [aiButtonText],
     ['📢 Broadcast Message', '❌ Close Admin']
   ]).resize();
 };

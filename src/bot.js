@@ -212,30 +212,36 @@ const startSearch = async (ctx) => {
       ...getActiveChatKeyboard()
     }).catch(() => {});
   } else {
-    // NO HUMAN USERS WAITING: START AI STRANGER PERSONA CHAT
-    const persona = aiPartner.startAISession(userId);
+    // NO HUMAN USERS WAITING
+    if (aiPartner.isAIEnabled()) {
+      // AI BOT IS ENABLED BY ADMIN: START AI STRANGER CHAT
+      const persona = aiPartner.startAISession(userId);
 
-    const matchMessage = 
-      `🎉 *Partner Connected!*\n\n` +
-      `Say Hi! Be friendly and respectful.\n` +
-      `Use the buttons below to skip or leave anytime.`;
+      const matchMessage = 
+        `🎉 *Partner Connected!*\n\n` +
+        `Say Hi! Be friendly and respectful.\n` +
+        `Use the buttons below to skip or leave anytime.`;
 
-    await ctx.reply(matchMessage, {
-      parse_mode: 'Markdown',
-      ...getActiveChatKeyboard()
-    });
+      await ctx.reply(matchMessage, {
+        parse_mode: 'Markdown',
+        ...getActiveChatKeyboard()
+      });
 
-    // Simulate typing delay for AI greeting
-    setTimeout(async () => {
-      if (aiPartner.isAIChat(userId)) {
-        await ctx.sendChatAction('typing').catch(() => {});
-        setTimeout(async () => {
-          if (aiPartner.isAIChat(userId)) {
-            await ctx.reply(persona.greeting).catch(() => {});
-          }
-        }, 1000);
-      }
-    }, 800);
+      // Simulate typing delay for AI greeting
+      setTimeout(async () => {
+        if (aiPartner.isAIChat(userId)) {
+          await ctx.sendChatAction('typing').catch(() => {});
+          setTimeout(async () => {
+            if (aiPartner.isAIChat(userId)) {
+              await ctx.reply(persona.greeting).catch(() => {});
+            }
+          }, 1000);
+        }
+      }, 800);
+    } else {
+      // AI BOT IS DISABLED BY ADMIN: USER STAYS IN QUEUE
+      // Do nothing extra; user is already added to queue
+    }
   }
 };
 
@@ -380,7 +386,7 @@ bot.command('admin', async (ctx) => {
 
   return ctx.reply('🎛 *Mallu Chat Admin Panel*', {
     parse_mode: 'Markdown',
-    ...getAdminKeyboard()
+    ...getAdminKeyboard(aiPartner.isAIEnabled())
   });
 });
 
@@ -388,6 +394,39 @@ bot.hears('❌ Close Admin', async (ctx) => {
   if (!isAdmin(ctx)) return;
   return ctx.reply('Admin panel closed.', getMainMenuKeyboard());
 });
+
+/**
+ * Toggle AI Bot Handler
+ */
+const toggleAIBotHandler = async (ctx) => {
+  if (!isAdmin(ctx)) return;
+
+  const currentStatus = aiPartner.isAIEnabled();
+  const newStatus = !currentStatus;
+  aiPartner.setAIEnabled(newStatus);
+
+  const statusText = newStatus ? '✅ *AI Companion Bot ENABLED!* Users will chat with AI when 0 humans are online.' : '🛑 *AI Companion Bot DISABLED!* Users will wait in queue until real humans join.';
+
+  return ctx.reply(statusText, {
+    parse_mode: 'Markdown',
+    ...getAdminKeyboard(newStatus)
+  });
+};
+
+bot.command('aibot', async (ctx) => {
+  if (!isAdmin(ctx)) return;
+  const args = ctx.message.text.split(' ').slice(1);
+  if (args[0] === 'on') {
+    aiPartner.setAIEnabled(true);
+    return ctx.reply('✅ AI Bot Companion ENABLED.', getAdminKeyboard(true));
+  } else if (args[0] === 'off') {
+    aiPartner.setAIEnabled(false);
+    return ctx.reply('🛑 AI Bot Companion DISABLED.', getAdminKeyboard(false));
+  }
+  return toggleAIBotHandler(ctx);
+});
+
+bot.hears(['🤖 AI Bot: ON (Click to Disable)', '🤖 AI Bot: OFF (Click to Enable)'], toggleAIBotHandler);
 
 /**
  * Admin Stats Button / Handler
@@ -400,16 +439,18 @@ const handleAdminStats = async (ctx) => {
   const totalMatches = session.getTotalMatchesCount();
   const totalUsers = registeredUsers.size;
   const bannedCount = admin.getBannedList().length;
+  const aiStatusText = aiPartner.isAIEnabled() ? '🟢 ON' : '🔴 OFF';
 
   const text = 
     `📊 *ADMIN SYSTEM STATS*\n\n` +
+    `🤖 *AI Companion Status:* ${aiStatusText}\n` +
     `👥 *Total Bot Users:* ${totalUsers}\n` +
     `⏳ *Waiting Queue:* ${waiting}\n` +
     `💬 *Active Ongoing Pairs:* ${activePairs}\n` +
     `🎉 *Total Matches Created:* ${totalMatches}\n` +
     `🚫 *Active Bans/Restrictions:* ${bannedCount}`;
 
-  return ctx.replyWithMarkdownV2(text.replace(/([!.-])/g, '\\$1'), getAdminKeyboard());
+  return ctx.replyWithMarkdownV2(text.replace(/([!.-])/g, '\\$1'), getAdminKeyboard(aiPartner.isAIEnabled()));
 };
 
 bot.hears('📊 Admin Stats', handleAdminStats);
@@ -422,7 +463,7 @@ bot.hears('🚫 Ban List', async (ctx) => {
 
   const list = admin.getBannedList();
   if (list.length === 0) {
-    return ctx.reply('✅ No users are currently banned or restricted.', getAdminKeyboard());
+    return ctx.reply('✅ No users are currently banned or restricted.', getAdminKeyboard(aiPartner.isAIEnabled()));
   }
 
   let text = `🚫 *ACTIVE BANS & RESTRICTIONS (${list.length})*\n\n`;
@@ -431,7 +472,7 @@ bot.hears('🚫 Ban List', async (ctx) => {
     text += `• User ID: \`${b.userId}\` | Type: ${typeLabel}\n  Reason: ${b.reason}\n\n`;
   }
 
-  return ctx.replyWithMarkdown(text, getAdminKeyboard());
+  return ctx.replyWithMarkdown(text, getAdminKeyboard(aiPartner.isAIEnabled()));
 });
 
 /**
