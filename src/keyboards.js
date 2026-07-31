@@ -31,8 +31,19 @@ const getSearchingKeyboard = () => {
   ]).resize();
 };
 
+/**
+ * Admin Panel Keyboard for owner/admin
+ */
+const getAdminKeyboard = () => {
+  return Markup.keyboard([
+    ['📊 Admin Stats', '🚫 Ban List'],
+    ['📢 Broadcast Message', '❌ Close Admin']
+  ]).resize();
+};
+
 module.exports = {
   getMainMenuKeyboard,
   getActiveChatKeyboard,
-  getSearchingKeyboard
+  getSearchingKeyboard,
+  getAdminKeyboard
 };
