@@ -20,15 +20,19 @@ const {
   getActiveChatKeyboard,
   getSearchingKeyboard,
   getAdminKeyboard,
-  get18PlusVerificationKeyboard
+  get18PlusVerificationKeyboard,
+  getShareToUnlockKeyboard
 } = require('./keyboards');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID ? Number(process.env.ADMIN_ID) : null;
 
-// Track unique users and 18+ verified status
+// Track unique users, 18+ verified status, and share-unlocked status
 const registeredUsers = new Set();
 const verifiedUsers = new Set();
+const unlockedShareUsers = new Set();
+
+let botUsername = 'MalluMatchBot';
 
 if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
   console.error('\n❌ ERROR: BOT_TOKEN is missing or invalid in .env file!');
@@ -67,8 +71,8 @@ bot.start(async (ctx) => {
     return ctx.reply(`🚫 You are restricted from using Mallu Chat${timeText}.\nReason: ${banCheck.reason}`);
   }
 
-  // If already verified, show main menu directly
-  if (verifiedUsers.has(userId)) {
+  // If already verified and unlocked, show main menu directly
+  if (verifiedUsers.has(userId) && unlockedShareUsers.has(userId)) {
     return ctx.reply('🌴 Welcome back to Mallu Match! Tap "🔍 Find Partner" to start chatting.', getMainMenuKeyboard());
   }
 
@@ -89,8 +93,33 @@ bot.start(async (ctx) => {
 bot.action('verify_18', async (ctx) => {
   const userId = ctx.from.id;
   verifiedUsers.add(userId);
-  await ctx.answerCbQuery('✅ Age & Terms verified successfully!');
-  await ctx.editMessageText('✅ *Verification Complete!*\n\nYou can now start matching with random partners.', { parse_mode: 'Markdown' });
+  await ctx.answerCbQuery('✅ Age & Terms verified!');
+
+  if (unlockedShareUsers.has(userId)) {
+    await ctx.editMessageText('✅ *Verification Complete!*\n\nYou can now start matching with random partners.', { parse_mode: 'Markdown' });
+    return ctx.reply('👇 Tap *🔍 Find Partner* below to start chatting!', getMainMenuKeyboard());
+  }
+
+  // Show Share-to-Unlock Step
+  const sharePromptText = 
+    `📢 *ONE LAST STEP TO UNLOCK CHAT!*\n\n` +
+    `To keep Mallu Chat active and growing, please **share this bot link to 2 Telegram groups or friends** to unlock random chatting.\n\n` +
+    `Tap the button below to share:`;
+
+  await ctx.editMessageText(sharePromptText, {
+    parse_mode: 'Markdown',
+    ...getShareToUnlockKeyboard(botUsername)
+  });
+});
+
+/**
+ * Verify Shares Callback
+ */
+bot.action('verify_shares', async (ctx) => {
+  const userId = ctx.from.id;
+  unlockedShareUsers.add(userId);
+  await ctx.answerCbQuery('🎉 Chat Unlocked!');
+  await ctx.editMessageText('🎉 *SHARE VERIFIED! CHAT UNLOCKED!*\n\nThank you for sharing! You can now start matching with partners.', { parse_mode: 'Markdown' });
   return ctx.reply('👇 Tap *🔍 Find Partner* below to start chatting!', getMainMenuKeyboard());
 });
 
@@ -157,6 +186,17 @@ const startSearch = async (ctx) => {
   // Check 18+ verification
   if (!verifiedUsers.has(userId)) {
     return ctx.reply('⚠️ You must confirm you are 18+ first. Send /start to accept the Terms of Service.');
+  }
+
+  // Check Share-to-Unlock requirement
+  if (!unlockedShareUsers.has(userId)) {
+    return ctx.reply(
+      '📢 *UNLOCK CHAT REQUIRED*\n\nPlease share this bot link to 2 Telegram groups or friends to unlock random chatting!',
+      {
+        parse_mode: 'Markdown',
+        ...getShareToUnlockKeyboard(botUsername)
+      }
+    );
   }
 
   // Check ban status
