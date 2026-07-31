@@ -41,9 +41,20 @@ const getAdminKeyboard = () => {
   ]).resize();
 };
 
+/**
+ * 18+ Age Gate Inline Keyboard
+ */
+const get18PlusVerificationKeyboard = () => {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('✅ I am 18+ & Agree to Terms', 'verify_18')],
+    [Markup.button.callback('❌ Exit (Under 18)', 'reject_18')]
+  ]);
+};
+
 module.exports = {
   getMainMenuKeyboard,
   getActiveChatKeyboard,
   getSearchingKeyboard,
-  getAdminKeyboard
+  getAdminKeyboard,
+  get18PlusVerificationKeyboard
 };

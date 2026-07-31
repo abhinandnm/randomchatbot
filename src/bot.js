@@ -1,30 +1,33 @@
+// 1. Immediately bind HTTP port for Render health checks
 const http = require('http');
+const PORT = process.env.PORT || 10000;
+
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Mallu Chat Telegram Bot is Live & Active!\n');
+}).listen(PORT, '0.0.0.0', () => {
+  console.log(`🌐 Health check server bound successfully on 0.0.0.0:${PORT}`);
+});
+
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const queue = require('./queue');
 const session = require('./session');
 const admin = require('./admin');
-
-// Lightweight HTTP server for Render Web Service health checks
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Mallu Chat Telegram Bot is Live & Active!\n');
-}).listen(PORT, () => {
-  console.log(`🌐 Health check server listening on port ${PORT}`);
-});
 const {
   getMainMenuKeyboard,
   getActiveChatKeyboard,
   getSearchingKeyboard,
-  getAdminKeyboard
+  getAdminKeyboard,
+  get18PlusVerificationKeyboard
 } = require('./keyboards');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID ? Number(process.env.ADMIN_ID) : null;
 
-// Track all unique user IDs for broadcast
+// Track unique users and 18+ verified status
 const registeredUsers = new Set();
+const verifiedUsers = new Set();
 
 if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
   console.error('\n❌ ERROR: BOT_TOKEN is missing or invalid in .env file!');
@@ -35,7 +38,7 @@ if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
 const bot = new Telegraf(BOT_TOKEN);
 
 /**
- * Middleware to track user IDs and check bans
+ * Middleware to track user IDs
  */
 bot.use(async (ctx, next) => {
   if (ctx.from) {
@@ -53,28 +56,46 @@ const isAdmin = (ctx) => {
 };
 
 /**
- * START Command
+ * START Command - 18+ Age Gate & Terms Agreement
  */
 bot.start(async (ctx) => {
-  const banCheck = admin.isBanned(ctx.from.id);
+  const userId = ctx.from.id;
+  const banCheck = admin.isBanned(userId);
   if (banCheck.banned) {
     const timeText = banCheck.remainingHours ? ` (Remaining: ${banCheck.remainingHours} hours)` : '';
     return ctx.reply(`🚫 You are restricted from using Mallu Chat${timeText}.\nReason: ${banCheck.reason}`);
   }
 
-  const welcomeMessage = 
-    `🌴 *Welcome to Mallu Match!* 🌴\n\n` +
-    `Connect anonymously with random Malayalis & people around the world for 1-on-1 text and media chat.\n\n` +
-    `✨ *Features:*\n` +
-    `• Instant anonymous matching\n` +
-    `• Share text, photos, voice notes, stickers & GIFs\n` +
-    `• Skip anytime with ⏭ Next Partner\n\n` +
-    `Tap *🔍 Find Partner* below to start chatting!`;
+  // If already verified, show main menu directly
+  if (verifiedUsers.has(userId)) {
+    return ctx.reply('🌴 Welcome back to Mallu Match! Tap "🔍 Find Partner" to start chatting.', getMainMenuKeyboard());
+  }
 
-  return ctx.replyWithMarkdownV2(
-    welcomeMessage.replace(/([!.-])/g, '\\$1'),
-    getMainMenuKeyboard()
-  );
+  const ageGateText = 
+    `🔞 *MALLU MATCH - AGE & SAFETY VERIFICATION*\n\n` +
+    `Before using Mallu Match, you must confirm that you meet the required age and safety guidelines:\n\n` +
+    `1️⃣ You are **18 years or older**.\n` +
+    `2️⃣ You agree to follow our community rules (No illegal content, harassment, or scams).\n` +
+    `3️⃣ Violation of safety rules will result in an immediate permanent ban and report.\n\n` +
+    `Please confirm below to proceed:`;
+
+  return ctx.replyWithMarkdown(ageGateText, get18PlusVerificationKeyboard());
+});
+
+/**
+ * 18+ Age Verification Callbacks
+ */
+bot.action('verify_18', async (ctx) => {
+  const userId = ctx.from.id;
+  verifiedUsers.add(userId);
+  await ctx.answerCbQuery('✅ Age & Terms verified successfully!');
+  await ctx.editMessageText('✅ *Verification Complete!*\n\nYou can now start matching with random partners.', { parse_mode: 'Markdown' });
+  return ctx.reply('👇 Tap *🔍 Find Partner* below to start chatting!', getMainMenuKeyboard());
+});
+
+bot.action('reject_18', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.editMessageText('❌ *Access Denied.*\n\nYou must be 18 years or older to use Mallu Match.', { parse_mode: 'Markdown' });
 });
 
 /**
@@ -107,6 +128,11 @@ bot.hears('ℹ️ Rules & Help', sendHelp);
  */
 const startSearch = async (ctx) => {
   const userId = ctx.from.id;
+
+  // Check 18+ verification
+  if (!verifiedUsers.has(userId)) {
+    return ctx.reply('⚠️ You must confirm you are 18+ first. Send /start to accept the Terms of Service.');
+  }
 
   // Check ban status
   const banCheck = admin.isBanned(userId);
@@ -507,11 +533,24 @@ bot.hears('📢 Broadcast Message', async (ctx) => {
 bot.on('message', async (ctx) => {
   const userId = ctx.from.id;
 
+  // Check 18+ verification
+  if (!verifiedUsers.has(userId)) {
+    return ctx.reply('⚠️ You must confirm you are 18+ first. Send /start to accept the Terms of Service.');
+  }
+
   // Check ban status
   const banCheck = admin.isBanned(userId);
   if (banCheck.banned) {
     const timeText = banCheck.remainingHours ? ` (Remaining: ${banCheck.remainingHours} hours)` : '';
     return ctx.reply(`🚫 You are restricted from sending messages${timeText}.\nReason: ${banCheck.reason}`);
+  }
+
+  // Anti-Link & Anti-Phishing Filter for safety
+  if (ctx.message && ctx.message.text) {
+    const text = ctx.message.text.toLowerCase();
+    if (text.includes('http://') || text.includes('https://') || text.includes('t.me/') || text.includes('bit.ly')) {
+      return ctx.reply('⚠️ For user safety, sending external web links or Telegram channel invites is not allowed in anonymous chat.');
+    }
   }
 
   // If user is waiting in queue
