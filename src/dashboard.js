@@ -871,7 +871,7 @@ function getDashboardHTML() {
 /**
  * Handle HTTP Requests for Health Check, Admin Portal UI, and API Endpoints
  */
-function handleHTTPRequests(req, res, context) {
+async function handleHTTPRequests(req, res, context) {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
   const query = parsedUrl.query;
