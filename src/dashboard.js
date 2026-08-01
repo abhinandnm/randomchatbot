@@ -1,9 +1,25 @@
-const crypto = require('crypto');
-const url = require('url');
-
-// Secret Nonces for Public-Private Key Challenge
+// Secret Nonces & Cryptographic Sessions
 const activeNonces = new Map();
 const activeSessions = new Set();
+
+// Anti-Brute-Force & Rate Limiting System
+const failedAttempts = new Map(); // IP -> { count, lockUntil }
+const LOCKOUT_THRESHOLD = 5; // 5 failed attempts
+const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes lockout
+
+// Helper for constant-time string comparison (prevents timing side-channel attacks)
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+// Helper to extract client IP address
+function getClientIP(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+}
 
 // In-Memory Live Audit Logs for Web Dashboard
 const liveLogs = [];
@@ -925,15 +941,44 @@ function handleHTTPRequests(req, res, context) {
     return;
   }
 
-  // Helper Auth Verification - STRICT (No default fallback)
+  // Anti-Brute-Force Lockout Check
+  const clientIP = getClientIP(req);
+  const attemptData = failedAttempts.get(clientIP) || { count: 0, lockUntil: 0 };
+
+  if (Date.now() < attemptData.lockUntil) {
+    const remainingSecs = Math.ceil((attemptData.lockUntil - Date.now()) / 1000);
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: `🚫 Too many failed login attempts! IP locked out for ${remainingSecs}s.` }));
+  }
+
+  // Helper Auth Verification - STRICT (No default fallback + Constant-Time Security)
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace('Bearer ', '').trim() || query.key || '';
 
   const adminPass = process.env.ADMIN_PASSWORD || process.env.ADMIN_KEY || '';
   const adminId = process.env.ADMIN_ID ? String(process.env.ADMIN_ID) : '';
 
-  // ONLY allow cryptographically verified session tokens, OR explicitly configured ADMIN_PASSWORD / ADMIN_ID in .env
-  const isValidAuth = (token && (activeSessions.has(token) || (adminPass && token === adminPass) || (adminId && token === adminId)));
+  const isSessionValid = token && activeSessions.has(token);
+  const isPassValid = token && adminPass && safeCompare(token, adminPass);
+  const isIdValid = token && adminId && safeCompare(token, adminId);
+
+  const isValidAuth = isSessionValid || isPassValid || isIdValid;
+
+  if (token && !isValidAuth) {
+    // Record failed attempt
+    attemptData.count = (attemptData.count || 0) + 1;
+    addLiveLog('report', `Failed admin authentication attempt from IP: ${clientIP} (Attempt ${attemptData.count}/${LOCKOUT_THRESHOLD})`);
+
+    if (attemptData.count >= LOCKOUT_THRESHOLD) {
+      attemptData.lockUntil = Date.now() + LOCKOUT_TIME;
+      addLiveLog('report', `🚨 SECURITY ALERT: IP ${clientIP} LOCKED OUT for 15 minutes due to brute-force detection!`);
+    }
+
+    failedAttempts.set(clientIP, attemptData);
+  } else if (isValidAuth) {
+    // Clear failed attempts on successful login
+    failedAttempts.delete(clientIP);
+  }
 
   // 3. API Stats Endpoint (/api/admin/stats)
   if (pathname === '/api/admin/stats') {
