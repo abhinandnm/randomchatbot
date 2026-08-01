@@ -925,14 +925,15 @@ function handleHTTPRequests(req, res, context) {
     return;
   }
 
-  // Helper Auth Verification
+  // Helper Auth Verification - STRICT (No default fallback)
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace('Bearer ', '').trim() || query.key || '';
 
-  const adminPass = process.env.ADMIN_PASSWORD || process.env.ADMIN_KEY || 'admin123';
-  const adminId = process.env.ADMIN_ID || '';
+  const adminPass = process.env.ADMIN_PASSWORD || process.env.ADMIN_KEY || '';
+  const adminId = process.env.ADMIN_ID ? String(process.env.ADMIN_ID) : '';
 
-  const isValidAuth = (token && (activeSessions.has(token) || token === adminPass || token === adminId || token === 'admin123'));
+  // ONLY allow cryptographically verified session tokens, OR explicitly configured ADMIN_PASSWORD / ADMIN_ID in .env
+  const isValidAuth = (token && (activeSessions.has(token) || (adminPass && token === adminPass) || (adminId && token === adminId)));
 
   // 3. API Stats Endpoint (/api/admin/stats)
   if (pathname === '/api/admin/stats') {
