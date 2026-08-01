@@ -17,16 +17,25 @@ const {
   getShareToUnlockKeyboard
 } = require('./keyboards');
 
+// Global Uncaught Exception & Rejection Handlers (Prevents Render exit status 1)
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err.message);
+  if (dashboard && dashboard.addLiveLog) {
+    dashboard.addLiveLog('system', `Uncaught Exception: ${err.message}`);
+  }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  if (dashboard && dashboard.addLiveLog) {
+    dashboard.addLiveLog('system', `Unhandled Rejection: ${reason}`);
+  }
+});
+
 // Parse Multi-Bot Tokens from BOT_TOKENS (comma separated) or single BOT_TOKEN
 const rawTokens = process.env.BOT_TOKENS || process.env.BOT_TOKEN || '';
-const BOT_TOKENS = rawTokens.split(',').map(t => t.trim()).filter(Boolean);
+const BOT_TOKENS = rawTokens.split(',').map(t => t.trim()).filter(t => t && t !== 'YOUR_TELEGRAM_BOT_TOKEN_HERE');
 const ADMIN_ID = process.env.ADMIN_ID ? Number(process.env.ADMIN_ID) : null;
-
-if (BOT_TOKENS.length === 0 || BOT_TOKENS[0] === 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
-  console.error('\n❌ ERROR: BOT_TOKEN or BOT_TOKENS is missing or invalid in .env file!');
-  console.error('Please open .env and paste your Telegram Bot Token from @BotFather.\n');
-  process.exit(1);
-}
 
 // Persistent User State Files
 const UNLOCKED_FILE = path.join(__dirname, '..', 'unlocked_users.json');
@@ -67,17 +76,19 @@ let primaryBot = null;
 
 // Helper to send message to any user via their connected bot instance
 const sendMessageToUser = async (targetId, text, extra = {}) => {
+  if (!primaryBot) return;
   const targetBot = userBotMap.get(targetId) || primaryBot;
   return targetBot.telegram.sendMessage(targetId, text, extra);
 };
 
 // Helper to copy message to any user via their connected bot instance
 const copyMessageToUser = async (targetId, fromChatId, messageId, extra = {}) => {
+  if (!primaryBot) return;
   const targetBot = userBotMap.get(targetId) || primaryBot;
   return targetBot.telegram.copyMessage(targetId, fromChatId, messageId, extra);
 };
 
-// Initialize HTTP Health Check & Web Enterprise Dashboard Server
+// Initialize HTTP Health Check & Web Enterprise Dashboard Server (Always Listens)
 const PORT = process.env.PORT || 10000;
 const server = http.createServer((req, res) => {
   dashboard.handleHTTPRequests(req, res, {
@@ -96,29 +107,40 @@ server.listen(PORT, '0.0.0.0', () => {
   dashboard.addLiveLog('system', `Enterprise Dashboard HTTP Server listening on port ${PORT}`);
 });
 
-// Initialize Telegraf instance for each token
+if (BOT_TOKENS.length === 0) {
+  console.warn('⚠️ WARNING: No valid BOT_TOKENS provided in Environment Variables.');
+  console.warn('Web Dashboard is LIVE at /admin. Please add BOT_TOKENS in Render Environment Variables.\n');
+  dashboard.addLiveLog('system', '⚠️ WARNING: No BOT_TOKENS configured in environment variables.');
+}
+
+// Initialize Telegraf instance for each token safely
 for (const token of BOT_TOKENS) {
-  const bot = new Telegraf(token);
-  botInstances.push(bot);
-  if (!primaryBot) primaryBot = bot;
+  try {
+    const bot = new Telegraf(token);
+    botInstances.push(bot);
+    if (!primaryBot) primaryBot = bot;
 
-  // Global Error Catching for Telegraf
-  bot.catch((err, ctx) => {
-    console.error(`❌ Telegraf Error on bot for ${ctx.updateType}:`, err.message);
-    dashboard.addLiveLog('system', `Telegraf Error: ${err.message}`);
-    ctx.reply('⚠️ An unexpected error occurred. Please try sending /start again.').catch(() => {});
-  });
+    // Global Error Catching for Telegraf
+    bot.catch((err, ctx) => {
+      console.error(`❌ Telegraf Error on bot for ${ctx.updateType}:`, err.message);
+      dashboard.addLiveLog('system', `Telegraf Error: ${err.message}`);
+      ctx.reply('⚠️ An unexpected error occurred. Please try sending /start again.').catch(() => {});
+    });
 
-  // Middleware to track user IDs and connected bot instance
-  bot.use(async (ctx, next) => {
-    if (ctx.from) {
-      registeredUsers.add(ctx.from.id);
-      userBotMap.set(ctx.from.id, bot);
-    }
-    return next();
-  });
+    // Middleware to track user IDs and connected bot instance
+    bot.use(async (ctx, next) => {
+      if (ctx.from) {
+        registeredUsers.add(ctx.from.id);
+        userBotMap.set(ctx.from.id, bot);
+      }
+      return next();
+    });
 
-  setupBotHandlers(bot);
+    setupBotHandlers(bot);
+  } catch (err) {
+    console.error(`❌ Failed to initialize Telegraf for token ${token.substring(0, 10)}...:`, err.message);
+    dashboard.addLiveLog('system', `Initialization Error for token: ${err.message}`);
+  }
 }
 
 /**
@@ -626,17 +648,21 @@ function setupBotHandlers(bot) {
   });
 }
 
-// Launch all bot instances independently
-console.log(`⏳ Launching ${botInstances.length} Telegram Bot instances...`);
-botInstances.forEach((b, index) => {
-  b.launch().then(() => {
-    console.log(`🚀 Bot Instance #${index + 1} connected successfully!`);
-    dashboard.addLiveLog('system', `Bot Instance #${index + 1} connected successfully.`);
-  }).catch((err) => {
-    console.error(`❌ Failed to launch Bot Instance #${index + 1}:`, err.message);
-    dashboard.addLiveLog('system', `Bot Instance #${index + 1} Launch Error: ${err.message}`);
+// Launch all bot instances independently with safety handlers
+if (botInstances.length > 0) {
+  console.log(`⏳ Launching ${botInstances.length} Telegram Bot instances...`);
+  botInstances.forEach((b, index) => {
+    b.launch().then(() => {
+      console.log(`🚀 Bot Instance #${index + 1} connected successfully!`);
+      dashboard.addLiveLog('system', `Bot Instance #${index + 1} connected successfully.`);
+    }).catch((err) => {
+      console.error(`❌ Failed to launch Bot Instance #${index + 1}:`, err.message);
+      dashboard.addLiveLog('system', `Bot Instance #${index + 1} Launch Error: ${err.message}`);
+    });
   });
-});
+} else {
+  console.log('ℹ️ Server is running Web Enterprise Dashboard on port ' + PORT + ' (Waiting for Telegram BOT_TOKENS).');
+}
 
 if (ADMIN_ID) {
   console.log(`🛡️ Admin Panel enabled for Admin Telegram ID: ${ADMIN_ID}`);
