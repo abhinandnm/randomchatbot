@@ -1,22 +1,14 @@
-// 1. Immediately bind HTTP port for Render health checks
-const http = require('http');
-const PORT = process.env.PORT || 10000;
-
-http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Mallu Chat Telegram Bot is Live & Active!\n');
-}).listen(PORT, '0.0.0.0', () => {
-  console.log(`🌐 Health check server bound successfully on 0.0.0.0:${PORT}`);
-});
-
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
+
 const queue = require('./queue');
 const session = require('./session');
 const admin = require('./admin');
 const aiPartner = require('./ai_partner');
+const dashboard = require('./dashboard');
 const {
   getMainMenuKeyboard,
   getActiveChatKeyboard,
@@ -69,6 +61,10 @@ const shareClickedUsers = new Set();
 // Map of userId -> Telegraf Bot Instance (Multi-Bot Support)
 const userBotMap = new Map();
 
+// Array of all initialized bot instances
+const botInstances = [];
+let primaryBot = null;
+
 // Helper to send message to any user via their connected bot instance
 const sendMessageToUser = async (targetId, text, extra = {}) => {
   const targetBot = userBotMap.get(targetId) || primaryBot;
@@ -81,9 +77,24 @@ const copyMessageToUser = async (targetId, fromChatId, messageId, extra = {}) =>
   return targetBot.telegram.copyMessage(targetId, fromChatId, messageId, extra);
 };
 
-// Array of all initialized bot instances
-const botInstances = [];
-let primaryBot = null;
+// Initialize HTTP Health Check & Web Enterprise Dashboard Server
+const PORT = process.env.PORT || 10000;
+const server = http.createServer((req, res) => {
+  dashboard.handleHTTPRequests(req, res, {
+    queue,
+    session,
+    admin,
+    aiPartner,
+    registeredUsers,
+    botInstances,
+    sendMessageToUser
+  });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🌐 HTTP Server & Enterprise Dashboard listening on 0.0.0.0:${PORT}`);
+  dashboard.addLiveLog('system', `Enterprise Dashboard HTTP Server listening on port ${PORT}`);
+});
 
 // Initialize Telegraf instance for each token
 for (const token of BOT_TOKENS) {
@@ -94,6 +105,7 @@ for (const token of BOT_TOKENS) {
   // Global Error Catching for Telegraf
   bot.catch((err, ctx) => {
     console.error(`❌ Telegraf Error on bot for ${ctx.updateType}:`, err.message);
+    dashboard.addLiveLog('system', `Telegraf Error: ${err.message}`);
     ctx.reply('⚠️ An unexpected error occurred. Please try sending /start again.').catch(() => {});
   });
 
@@ -135,7 +147,7 @@ function setupBotHandlers(bot) {
         return ctx.reply(`🚫 You are restricted from using Mallu Chat${timeText}.\nReason: ${banCheck.reason}`);
       }
 
-      // Reset share lock when user triggers /start (e.g. after clearing chat/restarting bot)
+      // Reset share lock when user triggers /start
       unlockedShareUsers.delete(userId);
       shareClickedUsers.delete(userId);
       saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
@@ -143,6 +155,8 @@ function setupBotHandlers(bot) {
       const me = await bot.telegram.getMe().catch(() => ({ first_name: 'Mallu Chat', username: 'MalluMatchBot' }));
       const activeUsername = me.username || 'MalluMatchBot';
       const activeName = (me.first_name || 'Mallu Chat').toUpperCase();
+
+      dashboard.addLiveLog('system', `User ${userId} started bot @${activeUsername}`);
 
       const sharePromptText = 
         `✨ *WELCOME TO ${activeName}!* ✨\n\n` +
@@ -166,7 +180,7 @@ function setupBotHandlers(bot) {
     shareClickedUsers.add(userId);
     await ctx.answerCbQuery('📲 Opening Telegram Share...');
 
-    const me = await bot.telegram.getMe().catch(() => ({ username: 'MalluMatchBot' }));
+    const me = await bot.telegram.getMe().catch(() => ({ first_name: 'Mallu Chat', username: 'MalluMatchBot' }));
     const activeUsername = me.username || 'MalluMatchBot';
 
     const shareText = encodeURIComponent(`🌴 Join Mallu Chat - #1 Anonymous Random Chat Bot for Malayalis! Connect 100% anonymously for text & photo chat: https://t.me/${activeUsername}`);
@@ -193,7 +207,7 @@ function setupBotHandlers(bot) {
 
     if (!shareClickedUsers.has(userId)) {
       await ctx.answerCbQuery('⚠️ Access Denied! Please tap Share to 2 Groups first!', { show_alert: true });
-      const me = await bot.telegram.getMe().catch(() => ({ username: 'MalluMatchBot' }));
+      const me = await bot.telegram.getMe().catch(() => ({ first_name: 'Mallu Chat', username: 'MalluMatchBot' }));
       const activeUsername = me.username || 'MalluMatchBot';
       return ctx.reply(
         '⚠️ *ACCESS DENIED*\n\nYou MUST tap **📲 Share to 2 Groups to Unlock Chat** first before clicking verify!',
@@ -206,6 +220,7 @@ function setupBotHandlers(bot) {
 
     unlockedShareUsers.add(userId);
     saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
+    dashboard.addLiveLog('system', `User ${userId} unlocked chat verification.`);
     await ctx.answerCbQuery('🎉 Chat Unlocked!');
     await ctx.editMessageText('🎉 *SHARE VERIFIED! CHAT UNLOCKED!*\n\nThank you for sharing! You can now start matching with random partners.', { parse_mode: 'Markdown' });
     return ctx.reply('👇 Tap *🔍 Find Partner* below to start chatting!', getMainMenuKeyboard());
@@ -268,7 +283,7 @@ function setupBotHandlers(bot) {
 
     // Check Share-to-Unlock requirement
     if (!unlockedShareUsers.has(userId)) {
-      const me = await bot.telegram.getMe().catch(() => ({ username: 'MalluMatchBot' }));
+      const me = await bot.telegram.getMe().catch(() => ({ first_name: 'Mallu Chat', username: 'MalluMatchBot' }));
       const activeUsername = me.username || 'MalluMatchBot';
       return ctx.reply(
         '📢 *UNLOCK CHAT REQUIRED*\n\nPlease share this bot link to 2 Telegram groups or friends to unlock random chatting!',
@@ -286,12 +301,10 @@ function setupBotHandlers(bot) {
       return ctx.reply(`🚫 You are restricted from starting a chat${timeText}.\nReason: ${banCheck.reason}`);
     }
 
-    // Check if user is already in a chat or AI chat
     if (session.isInChat(userId) || aiPartner.isAIChat(userId)) {
       return ctx.reply('⚠️ You are already in a chat! Tap "⏭ Next Partner" or "⏹ End Chat" first.', getActiveChatKeyboard());
     }
 
-    // Check if user is already waiting in queue
     if (queue.isInQueue(userId)) {
       return ctx.reply('⏳ You are already in the waiting list. Searching for a partner...', getSearchingKeyboard());
     }
@@ -301,11 +314,12 @@ function setupBotHandlers(bot) {
       ...getSearchingKeyboard()
     });
 
-    // Attempt to match with a real human first (across ALL bots)
+    dashboard.addLiveLog('system', `User ${userId} joined search queue.`);
+
+    // Attempt to match with a real human first
     const result = queue.addToQueue(userId);
 
     if (result.matched) {
-      // REAL HUMAN MATCH FOUND!
       const partnerId = result.partnerId;
 
       if (aiPartner.isAIChat(partnerId)) {
@@ -313,19 +327,19 @@ function setupBotHandlers(bot) {
       }
 
       session.createSession(userId, partnerId);
+      dashboard.addLiveLog('match', `Matched User ${userId} ↔ User ${partnerId}`);
 
       const matchMessage = 
         `🎉 *Partner Connected!*\n\n` +
         `Say Hi! Be friendly and respectful.\n` +
         `Use the buttons below to skip or leave anytime.`;
 
-      // Notify current user and matched partner across bots
       await sendMessageToUser(userId, matchMessage, { parse_mode: 'Markdown', ...getActiveChatKeyboard() }).catch(() => {});
       await sendMessageToUser(partnerId, matchMessage, { parse_mode: 'Markdown', ...getActiveChatKeyboard() }).catch(() => {});
     } else {
-      // NO HUMAN USERS WAITING
       if (aiPartner.isAIEnabled()) {
         const persona = aiPartner.startAISession(userId);
+        dashboard.addLiveLog('match', `User ${userId} matched with AI Persona: ${persona.name}`);
 
         const matchMessage = 
           `🎉 *Partner Connected!*\n\n` +
@@ -362,6 +376,7 @@ function setupBotHandlers(bot) {
 
     if (queue.isInQueue(userId)) {
       queue.removeFromQueue(userId);
+      dashboard.addLiveLog('system', `User ${userId} cancelled search.`);
       return ctx.reply('❌ Search cancelled.', getMainMenuKeyboard());
     }
 
@@ -387,6 +402,7 @@ function setupBotHandlers(bot) {
 
     if (aiPartner.isAIChat(userId)) {
       aiPartner.endAISession(userId);
+      dashboard.addLiveLog('system', `User ${userId} left AI chat session.`);
       return ctx.reply('⏹ You ended the chat.', getMainMenuKeyboard());
     }
 
@@ -395,6 +411,7 @@ function setupBotHandlers(bot) {
     }
 
     const partnerId = session.endSession(userId);
+    dashboard.addLiveLog('system', `Session ended between ${userId} and ${partnerId}`);
 
     await ctx.reply('⏹ You ended the chat.', getMainMenuKeyboard());
     if (partnerId) {
@@ -429,7 +446,7 @@ function setupBotHandlers(bot) {
   bot.hears('⏭ Next Partner', nextPartner);
 
   /**
-   * REPORT PARTNER Logic (Sends live alert to Admin)
+   * REPORT PARTNER Logic
    */
   const reportPartner = async (ctx) => {
     const userId = ctx.from.id;
@@ -445,6 +462,7 @@ function setupBotHandlers(bot) {
     }
 
     const partnerId = session.endSession(userId);
+    dashboard.addLiveLog('report', `User ${userId} reported partner ${partnerId}`);
     await ctx.reply('🚨 Partner reported and blocked from this session. Searching for a new partner...', getSearchingKeyboard());
 
     if (partnerId) {
@@ -480,11 +498,6 @@ function setupBotHandlers(bot) {
     });
   });
 
-  bot.hears('❌ Close Admin', async (ctx) => {
-    if (!isAdmin(ctx)) return;
-    return ctx.reply('Admin panel closed.', getMainMenuKeyboard());
-  });
-
   bot.command('aibot', async (ctx) => {
     if (!isAdmin(ctx)) return;
     const args = ctx.message.text.split(' ').slice(1);
@@ -498,49 +511,6 @@ function setupBotHandlers(bot) {
     const newStatus = !aiPartner.isAIEnabled();
     aiPartner.setAIEnabled(newStatus);
     return ctx.reply(`AI Companion Bot status changed: ${newStatus ? 'ENABLED' : 'DISABLED'}`, getAdminKeyboard(newStatus));
-  });
-
-  bot.hears(['🤖 AI Bot: ON (Click to Disable)', '🤖 AI Bot: OFF (Click to Enable)'], async (ctx) => {
-    if (!isAdmin(ctx)) return;
-    const newStatus = !aiPartner.isAIEnabled();
-    aiPartner.setAIEnabled(newStatus);
-    return ctx.reply(`AI Companion Bot status changed: ${newStatus ? 'ENABLED' : 'DISABLED'}`, getAdminKeyboard(newStatus));
-  });
-
-  bot.hears('📊 Admin Stats', async (ctx) => {
-    if (!isAdmin(ctx)) return;
-    const waiting = queue.getQueueLength();
-    const activePairs = session.getActiveChatPairsCount();
-    const totalMatches = session.getTotalMatchesCount();
-    const totalUsers = registeredUsers.size;
-    const bannedCount = admin.getBannedList().length;
-    const aiStatusText = aiPartner.isAIEnabled() ? '🟢 ON' : '🔴 OFF';
-
-    const text = 
-      `📊 *ADMIN SYSTEM STATS*\n\n` +
-      `🤖 *AI Companion Status:* ${aiStatusText}\n` +
-      `🤖 *Connected Bot Instances:* ${botInstances.length}\n` +
-      `👥 *Total Bot Users:* ${totalUsers}\n` +
-      `⏳ *Waiting Queue:* ${waiting}\n` +
-      `💬 *Active Ongoing Pairs:* ${activePairs}\n` +
-      `🎉 *Total Matches Created:* ${totalMatches}\n` +
-      `🚫 *Active Bans/Restrictions:* ${bannedCount}`;
-
-    return ctx.replyWithMarkdownV2(text.replace(/([!.-])/g, '\\$1'), getAdminKeyboard(aiPartner.isAIEnabled()));
-  });
-
-  bot.hears('🚫 Ban List', async (ctx) => {
-    if (!isAdmin(ctx)) return;
-    const list = admin.getBannedList();
-    if (list.length === 0) {
-      return ctx.reply('✅ No users are currently banned or restricted.', getAdminKeyboard(aiPartner.isAIEnabled()));
-    }
-    let text = `🚫 *ACTIVE BANS & RESTRICTIONS (${list.length})*\n\n`;
-    for (const b of list) {
-      const typeLabel = b.type === 'perm' ? 'Permanent Ban' : `Restricted (${b.remainingHours}h remaining)`;
-      text += `• User ID: \`${b.userId}\` | Type: ${typeLabel}\n  Reason: ${b.reason}\n\n`;
-    }
-    return ctx.replyWithMarkdown(text, getAdminKeyboard(aiPartner.isAIEnabled()));
   });
 
   bot.command('ban', async (ctx) => {
@@ -561,73 +531,9 @@ function setupBotHandlers(bot) {
     queue.removeFromQueue(targetId);
 
     admin.banUser(targetId, reason);
+    dashboard.addLiveLog('admin', `Admin banned User ${targetId}. Reason: ${reason}`);
     await sendMessageToUser(targetId, `🚫 You have been permanently banned from Mallu Chat.\nReason: ${reason}`).catch(() => {});
     return ctx.reply(`✅ User \`${targetId}\` permanently banned.`, { parse_mode: 'Markdown' });
-  });
-
-  bot.command('restrict', async (ctx) => {
-    if (!isAdmin(ctx)) return;
-    const args = ctx.message.text.split(' ').slice(1);
-    if (args.length < 2) return ctx.reply('⚠️ Usage: /restrict <user_id> <hours> [reason]');
-    const targetId = Number(args[0]);
-    const hours = Number(args[1]);
-    const reason = args.slice(2).join(' ') || 'Temporary restriction by admin';
-    if (isNaN(targetId) || isNaN(hours) || hours <= 0) return ctx.reply('❌ Invalid User ID or Hours.');
-
-    if (session.isInChat(targetId)) {
-      const partnerId = session.endSession(targetId);
-      if (partnerId) {
-        await sendMessageToUser(partnerId, '⏹ Chat ended by system administrator.', getMainMenuKeyboard()).catch(() => {});
-      }
-    }
-    if (aiPartner.isAIChat(targetId)) aiPartner.endAISession(targetId);
-    queue.removeFromQueue(targetId);
-
-    admin.restrictUser(targetId, hours, reason);
-    await sendMessageToUser(targetId, `🚫 You have been restricted from Mallu Chat for ${hours} hours.\nReason: ${reason}`).catch(() => {});
-    return ctx.reply(`✅ User \`${targetId}\` restricted for ${hours} hours.`, { parse_mode: 'Markdown' });
-  });
-
-  bot.command('unban', async (ctx) => {
-    if (!isAdmin(ctx)) return;
-    const args = ctx.message.text.split(' ').slice(1);
-    if (args.length < 1) return ctx.reply('⚠️ Usage: /unban <user_id>');
-    const targetId = Number(args[0]);
-    if (isNaN(targetId)) return ctx.reply('❌ Invalid User ID.');
-
-    const success = admin.unbanUser(targetId);
-    if (success) {
-      await sendMessageToUser(targetId, '✅ Your ban/restriction has been lifted. You can now use Mallu Chat!').catch(() => {});
-      return ctx.reply(`✅ User \`${targetId}\` unbanned successfully.`, { parse_mode: 'Markdown' });
-    }
-    return ctx.reply(`⚠️ User \`${targetId}\` was not found in ban list.`);
-  });
-
-  bot.command('kick', async (ctx) => {
-    if (!isAdmin(ctx)) return;
-    const args = ctx.message.text.split(' ').slice(1);
-    if (args.length < 1) return ctx.reply('⚠️ Usage: /kick <user_id>');
-    const targetId = Number(args[0]);
-    if (isNaN(targetId)) return ctx.reply('❌ Invalid User ID.');
-
-    if (session.isInChat(targetId)) {
-      const partnerId = session.endSession(targetId);
-      await sendMessageToUser(targetId, '⏹ Chat ended by admin.', getMainMenuKeyboard()).catch(() => {});
-      if (partnerId) {
-        await sendMessageToUser(partnerId, '⏹ Chat ended by admin.', getMainMenuKeyboard()).catch(() => {});
-      }
-      return ctx.reply(`✅ Active chat session for user \`${targetId}\` kicked.`, { parse_mode: 'Markdown' });
-    }
-    if (aiPartner.isAIChat(targetId)) {
-      aiPartner.endAISession(targetId);
-      await sendMessageToUser(targetId, '⏹ Chat ended by admin.', getMainMenuKeyboard()).catch(() => {});
-      return ctx.reply(`✅ AI chat session for user \`${targetId}\` kicked.`, { parse_mode: 'Markdown' });
-    }
-    if (queue.isInQueue(targetId)) {
-      queue.removeFromQueue(targetId);
-      return ctx.reply(`✅ User \`${targetId}\` removed from waiting queue.`, { parse_mode: 'Markdown' });
-    }
-    return ctx.reply(`⚠️ User \`${targetId}\` is not in an active chat or queue.`);
   });
 
   bot.command('broadcast', async (ctx) => {
@@ -636,23 +542,16 @@ function setupBotHandlers(bot) {
     if (!text) return ctx.reply('⚠️ Usage: /broadcast <message>');
 
     let successCount = 0;
-    let failCount = 0;
     await ctx.reply(`📢 Starting broadcast to ${registeredUsers.size} users across all bot instances...`);
 
     for (const uid of registeredUsers) {
       try {
         await sendMessageToUser(uid, `📢 *ANNOUNCEMENT*\n\n${text}`, { parse_mode: 'Markdown' });
         successCount++;
-      } catch (err) {
-        failCount++;
-      }
+      } catch (err) {}
     }
-    return ctx.reply(`✅ Broadcast completed!\n\nSuccessful: ${successCount}\nFailed: ${failCount}`);
-  });
-
-  bot.hears('📢 Broadcast Message', async (ctx) => {
-    if (!isAdmin(ctx)) return;
-    return ctx.reply('📢 To broadcast an announcement, use command:\n`/broadcast <your message text here>`', { parse_mode: 'Markdown' });
+    dashboard.addLiveLog('admin', `Admin broadcast delivered to ${successCount} users.`);
+    return ctx.reply(`✅ Broadcast completed! Successful: ${successCount}`);
   });
 
   /**
@@ -662,7 +561,7 @@ function setupBotHandlers(bot) {
     const userId = ctx.from.id;
 
     if (!unlockedShareUsers.has(userId)) {
-      const me = await bot.telegram.getMe().catch(() => ({ username: 'MalluMatchBot' }));
+      const me = await bot.telegram.getMe().catch(() => ({ first_name: 'Mallu Chat', username: 'MalluMatchBot' }));
       const activeUsername = me.username || 'MalluMatchBot';
       return ctx.reply(
         '📢 *UNLOCK CHAT REQUIRED*\n\nPlease share this bot link to 2 Telegram groups or friends to unlock random chatting!',
@@ -687,7 +586,8 @@ function setupBotHandlers(bot) {
     }
 
     if (aiPartner.isAIChat(userId)) {
-      console.log(`💬 [AI CHAT LOG] User ${userId}: ${ctx.message.text || '[Media]'}`);
+      const msgContent = ctx.message.text ? ctx.message.text : '[Media]';
+      dashboard.addLiveLog('chat', `[AI CHAT] User ${userId}: ${msgContent}`);
       await ctx.sendChatAction('typing').catch(() => {});
       setTimeout(async () => {
         if (aiPartner.isAIChat(userId)) {
@@ -712,10 +612,9 @@ function setupBotHandlers(bot) {
       return ctx.reply('⚠️ Session expired or partner disconnected.', getMainMenuKeyboard());
     }
 
-    const msgContent = ctx.message.text ? ctx.message.text : '[Media/Attachment]';
-    console.log(`💬 [CHAT LOG] User ${userId} -> Partner ${partnerId}: ${msgContent}`);
+    const msgContent = ctx.message.text ? ctx.message.text : '[Attachment/Media]';
+    dashboard.addLiveLog('chat', `User ${userId} ➡️ Partner ${partnerId}: ${msgContent}`);
 
-    // Relaying message to partner across bots
     try {
       await copyMessageToUser(partnerId, userId, ctx.message.message_id);
     } catch (err) {
@@ -731,12 +630,14 @@ function setupBotHandlers(bot) {
 console.log(`⏳ Launching ${botInstances.length} Telegram Bot instances...`);
 Promise.all(botInstances.map(b => b.launch())).then(() => {
   console.log(`🚀 ${botInstances.length} Telegram Bot Instance(s) up and running successfully!`);
+  dashboard.addLiveLog('system', `All ${botInstances.length} Telegram Bot instances connected and online.`);
   if (ADMIN_ID) {
     console.log(`🛡️ Admin Panel enabled for Admin Telegram ID: ${ADMIN_ID}`);
   }
   console.log('Press Ctrl+C to stop.');
 }).catch((err) => {
   console.error('❌ Failed to launch Telegram Bot(s):', err.message);
+  dashboard.addLiveLog('system', `Launch Error: ${err.message}`);
 });
 
 // Enable graceful stop
