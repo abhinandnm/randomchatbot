@@ -866,8 +866,8 @@ function handleHTTPRequests(req, res, context) {
     return res.end('Mallu Chat Telegram Multi-Bot Cluster is Live & Active!\n');
   }
 
-  // 2. Admin Dashboard Web UI (/admin)
-  if (pathname === '/admin' || pathname === '/dashboard') {
+  // 2. Admin Dashboard Web UI (/admin, /admin/, /dashboard, /dashboard/)
+  if (pathname === '/admin' || pathname === '/admin/' || pathname === '/dashboard' || pathname === '/dashboard/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(getDashboardHTML());
   }
