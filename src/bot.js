@@ -805,6 +805,13 @@ bot.on('message', async (ctx) => {
 console.log('⏳ Connecting to Telegram API...');
 bot.launch().then(() => {
   console.log('🚀 Mallu Match Telegram Bot is up and running successfully!');
+
+  // Dynamically fetch bot's active Telegram username
+  bot.telegram.getMe().then((me) => {
+    botUsername = me.username;
+    console.log(`🤖 Active Bot Username: @${botUsername}`);
+  }).catch(() => {});
+
   if (ADMIN_ID) {
     console.log(`🛡️ Admin Panel enabled for Admin Telegram ID: ${ADMIN_ID}`);
   } else {
