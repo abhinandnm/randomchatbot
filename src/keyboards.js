@@ -55,24 +55,15 @@ const get18PlusVerificationKeyboard = () => {
 };
 
 /**
- * Share Step 1 Keyboard (Shows Share to 2 Groups button first)
+ * Share to Unlock Inline Keyboard (Share & Verify)
  */
-const getShareStep1Keyboard = (botUsername = 'MalluMatchBot') => {
+const getShareToUnlockKeyboard = (botUsername = 'MalluMatchBot') => {
   const shareText = encodeURIComponent(`🌴 Join Mallu Chat - #1 Anonymous Random Chat Bot for Malayalis! Connect 100% anonymously for text & photo chat: https://t.me/${botUsername}`);
   const shareUrl = `https://t.me/share/url?url=${shareText}`;
 
   return Markup.inlineKeyboard([
     [Markup.button.url('📲 Share to 2 Groups to Unlock Chat', shareUrl)],
-    [Markup.button.callback('▶️ I Have Shared (Verify Now)', 'show_verify_button')]
-  ]);
-};
-
-/**
- * Share Step 2 Keyboard (Shows Verify button after user returns from contacts picker)
- */
-const getShareStep2Keyboard = () => {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('✅ Verify & Start Finding Partner', 'verify_shares')]
+    [Markup.button.callback('✅ Verify & Start Chatting', 'verify_shares')]
   ]);
 };
 
@@ -81,7 +72,5 @@ module.exports = {
   getActiveChatKeyboard,
   getSearchingKeyboard,
   getAdminKeyboard,
-  get18PlusVerificationKeyboard,
-  getShareStep1Keyboard,
-  getShareStep2Keyboard
+  getShareToUnlockKeyboard
 };

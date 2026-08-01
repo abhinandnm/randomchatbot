@@ -22,16 +22,13 @@ const {
   getActiveChatKeyboard,
   getSearchingKeyboard,
   getAdminKeyboard,
-  get18PlusVerificationKeyboard,
-  getShareStep1Keyboard,
-  getShareStep2Keyboard
+  getShareToUnlockKeyboard
 } = require('./keyboards');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID ? Number(process.env.ADMIN_ID) : null;
 
 // Persistent User State Files
-const VERIFIED_FILE = path.join(__dirname, '..', 'verified_users.json');
 const UNLOCKED_FILE = path.join(__dirname, '..', 'unlocked_users.json');
 
 // Helper to load IDs from JSON file
@@ -58,9 +55,7 @@ const saveSetToFile = (filePath, setInstance) => {
 
 // Persistent Sets
 const registeredUsers = new Set();
-const verifiedUsers = loadSetFromFile(VERIFIED_FILE);
 const unlockedShareUsers = loadSetFromFile(UNLOCKED_FILE);
-const shareClickedUsers = new Set();
 
 let botUsername = 'MalluMatchBot';
 
@@ -97,7 +92,7 @@ const isAdmin = (ctx) => {
 };
 
 /**
- * START Command - 18+ Age Gate & Terms Agreement
+ * START Command - Direct Share & Verify Gate
  */
 bot.start(async (ctx) => {
   try {
@@ -112,61 +107,18 @@ bot.start(async (ctx) => {
     unlockedShareUsers.delete(userId);
     saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
 
-    const ageGateText = 
-      `🔞 *MALLU MATCH - AGE & SAFETY VERIFICATION*\n\n` +
-      `Before using Mallu Match, you must confirm that you meet the required age and safety guidelines:\n\n` +
-      `1️⃣ You are **18 years or older**.\n` +
-      `2️⃣ You agree to follow our community rules (No illegal content, harassment, or scams).\n` +
-      `3️⃣ Violation of safety rules will result in an immediate permanent ban and report.\n\n` +
-      `Please confirm below to proceed:`;
+    const sharePromptText = 
+      `🌴 *WELCOME TO MALLU CHAT!* 🌴\n\n` +
+      `📢 *SHARE TO UNLOCK CHAT*\n` +
+      `To keep Mallu Chat active and growing, please **share this bot link to 2 Telegram groups or friends** to unlock random chatting!\n\n` +
+      `1️⃣ Tap **📲 Share to 2 Groups** below.\n` +
+      `2️⃣ Tap **✅ Verify & Start Chatting** to begin!`;
 
-    return ctx.replyWithMarkdown(ageGateText, get18PlusVerificationKeyboard());
+    return ctx.replyWithMarkdown(sharePromptText, getShareToUnlockKeyboard(botUsername));
   } catch (err) {
     console.error('Error in bot.start:', err);
     return ctx.reply('👋 Welcome to Mallu Match! Tap /start to begin.');
   }
-});
-
-/**
- * 18+ Age Verification Callbacks
- */
-bot.action('verify_18', async (ctx) => {
-  const userId = ctx.from.id;
-  verifiedUsers.add(userId);
-  saveSetToFile(VERIFIED_FILE, verifiedUsers);
-  await ctx.answerCbQuery('✅ Age & Terms verified!');
-
-  if (unlockedShareUsers.has(userId)) {
-    await ctx.editMessageText('✅ *Verification Complete!*\n\nYou can now start matching with random partners.', { parse_mode: 'Markdown' });
-    return ctx.reply('👇 Tap *🔍 Find Partner* below to start chatting!', getMainMenuKeyboard());
-  }
-
-  // STEP 1: Show Share Button First
-  const sharePromptText = 
-    `📢 *STEP 1: SHARE TO UNLOCK CHAT*\n\n` +
-    `To keep Mallu Chat active and growing, please **share this bot link to 2 Telegram groups or friends** to unlock random chatting.\n\n` +
-    `Tap the button below to open Telegram sharing:`;
-
-  await ctx.editMessageText(sharePromptText, {
-    parse_mode: 'Markdown',
-    ...getShareStep1Keyboard(botUsername)
-  });
-});
-
-/**
- * Transition to Step 2: Show Verify Button
- */
-bot.action('show_verify_button', async (ctx) => {
-  await ctx.answerCbQuery('▶️ Verification Step');
-
-  const verifyPromptText = 
-    `📢 *STEP 2: VERIFICATION*\n\n` +
-    `If you have shared the bot link to 2 Telegram groups or friends, click the button below to verify and start matching!`;
-
-  return ctx.editMessageText(verifyPromptText, {
-    parse_mode: 'Markdown',
-    ...getShareStep2Keyboard()
-  });
 });
 
 /**
@@ -178,13 +130,8 @@ bot.action('verify_shares', async (ctx) => {
   unlockedShareUsers.add(userId);
   saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
   await ctx.answerCbQuery('🎉 Chat Unlocked!');
-  await ctx.editMessageText('🎉 *SHARE VERIFIED! CHAT UNLOCKED!*\n\nThank you for sharing! You can now start matching with partners.', { parse_mode: 'Markdown' });
+  await ctx.editMessageText('🎉 *SHARE VERIFIED! CHAT UNLOCKED!*\n\nThank you for sharing! You can now start matching with random partners.', { parse_mode: 'Markdown' });
   return ctx.reply('👇 Tap *🔍 Find Partner* below to start chatting!', getMainMenuKeyboard());
-});
-
-bot.action('reject_18', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.editMessageText('❌ *Access Denied.*\n\nYou must be 18 years or older to use Mallu Match.', { parse_mode: 'Markdown' });
 });
 
 /**
@@ -242,18 +189,13 @@ bot.hears('ℹ️ Rules & Help', sendHelp);
 const startSearch = async (ctx) => {
   const userId = ctx.from.id;
 
-  // Check 18+ verification
-  if (!verifiedUsers.has(userId)) {
-    return ctx.reply('⚠️ You must confirm you are 18+ first. Send /start to accept the Terms of Service.');
-  }
-
   // Check Share-to-Unlock requirement
   if (!unlockedShareUsers.has(userId)) {
     return ctx.reply(
       '📢 *UNLOCK CHAT REQUIRED*\n\nPlease share this bot link to 2 Telegram groups or friends to unlock random chatting!',
       {
         parse_mode: 'Markdown',
-        ...getShareStep1Keyboard(botUsername)
+        ...getShareToUnlockKeyboard(botUsername)
       }
     );
   }
@@ -756,9 +698,15 @@ bot.hears('📢 Broadcast Message', async (ctx) => {
 bot.on('message', async (ctx) => {
   const userId = ctx.from.id;
 
-  // Check 18+ verification
-  if (!verifiedUsers.has(userId)) {
-    return ctx.reply('⚠️ You must confirm you are 18+ first. Send /start to accept the Terms of Service.');
+  // Check Share-to-Unlock requirement
+  if (!unlockedShareUsers.has(userId)) {
+    return ctx.reply(
+      '📢 *UNLOCK CHAT REQUIRED*\n\nPlease share this bot link to 2 Telegram groups or friends to unlock random chatting!',
+      {
+        parse_mode: 'Markdown',
+        ...getShareToUnlockKeyboard(botUsername)
+      }
+    );
   }
 
   // Check ban status
