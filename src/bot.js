@@ -108,10 +108,9 @@ bot.start(async (ctx) => {
       return ctx.reply(`🚫 You are restricted from using Mallu Chat${timeText}.\nReason: ${banCheck.reason}`);
     }
 
-    // If already verified and unlocked, show main menu directly
-    if (verifiedUsers.has(userId) && unlockedShareUsers.has(userId)) {
-      return ctx.reply('🌴 Welcome back to Mallu Match! Tap "🔍 Find Partner" to start chatting.', getMainMenuKeyboard());
-    }
+    // Reset share lock when user triggers /start (e.g. after clearing chat/restarting bot)
+    unlockedShareUsers.delete(userId);
+    saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
 
     const ageGateText = 
       `🔞 *MALLU MATCH - AGE & SAFETY VERIFICATION*\n\n` +
