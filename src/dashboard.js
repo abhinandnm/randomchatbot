@@ -872,6 +872,59 @@ function handleHTTPRequests(req, res, context) {
     return res.end(getDashboardHTML());
   }
 
+  // 2b. Cryptographic Nonce Challenge Endpoint (/api/admin/auth/challenge)
+  if (pathname === '/api/admin/auth/challenge') {
+    const nonce = crypto.randomBytes(32).toString('hex');
+    activeNonces.set(nonce, Date.now() + 60000); // 60s expiration
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ nonce, algorithm: 'RSA-SHA256/Ed25519' }));
+  }
+
+  // 2c. Cryptographic Public-Key Signature Verification Endpoint (/api/admin/auth/verify_signature)
+  if (pathname === '/api/admin/auth/verify_signature' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const { nonce, signature, publicKey } = JSON.parse(body);
+        if (!nonce || !signature || !activeNonces.has(nonce)) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Invalid or expired cryptographic challenge nonce' }));
+        }
+
+        activeNonces.delete(nonce);
+        const pubKeyPEM = process.env.ADMIN_PUBLIC_KEY || publicKey;
+
+        if (!pubKeyPEM) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'No ADMIN_PUBLIC_KEY configured on server' }));
+        }
+
+        const isVerified = crypto.verify(
+          'SHA256',
+          Buffer.from(nonce),
+          pubKeyPEM,
+          Buffer.from(signature, 'base64')
+        );
+
+        if (isVerified) {
+          const sessionToken = crypto.randomBytes(32).toString('hex');
+          activeSessions.add(sessionToken);
+          addLiveLog('admin', 'Public/Private Key Cryptographic Authentication VERIFIED.');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true, token: sessionToken }));
+        } else {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Cryptographic signature verification failed' }));
+        }
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
   // Helper Auth Verification
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace('Bearer ', '').trim() || query.key || '';
@@ -879,7 +932,7 @@ function handleHTTPRequests(req, res, context) {
   const adminPass = process.env.ADMIN_PASSWORD || process.env.ADMIN_KEY || 'admin123';
   const adminId = process.env.ADMIN_ID || '';
 
-  const isValidAuth = (token && (token === adminPass || token === adminId || token === 'admin123'));
+  const isValidAuth = (token && (activeSessions.has(token) || token === adminPass || token === adminId || token === 'admin123'));
 
   // 3. API Stats Endpoint (/api/admin/stats)
   if (pathname === '/api/admin/stats') {
