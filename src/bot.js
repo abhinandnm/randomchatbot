@@ -43,6 +43,12 @@ if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
 
 const bot = new Telegraf(BOT_TOKEN);
 
+// Global Error Catching for Telegraf
+bot.catch((err, ctx) => {
+  console.error(`❌ Telegraf Error for ${ctx.updateType}:`, err);
+  ctx.reply('⚠️ An unexpected error occurred. Please try sending /start again.').catch(() => {});
+});
+
 /**
  * Middleware to track user IDs
  */
@@ -65,27 +71,32 @@ const isAdmin = (ctx) => {
  * START Command - 18+ Age Gate & Terms Agreement
  */
 bot.start(async (ctx) => {
-  const userId = ctx.from.id;
-  const banCheck = admin.isBanned(userId);
-  if (banCheck.banned) {
-    const timeText = banCheck.remainingHours ? ` (Remaining: ${banCheck.remainingHours} hours)` : '';
-    return ctx.reply(`🚫 You are restricted from using Mallu Chat${timeText}.\nReason: ${banCheck.reason}`);
+  try {
+    const userId = ctx.from.id;
+    const banCheck = admin.isBanned(userId);
+    if (banCheck.banned) {
+      const timeText = banCheck.remainingHours ? ` (Remaining: ${banCheck.remainingHours} hours)` : '';
+      return ctx.reply(`🚫 You are restricted from using Mallu Chat${timeText}.\nReason: ${banCheck.reason}`);
+    }
+
+    // If already verified and unlocked, show main menu directly
+    if (verifiedUsers.has(userId) && unlockedShareUsers.has(userId)) {
+      return ctx.reply('🌴 Welcome back to Mallu Match! Tap "🔍 Find Partner" to start chatting.', getMainMenuKeyboard());
+    }
+
+    const ageGateText = 
+      `🔞 *MALLU MATCH - AGE & SAFETY VERIFICATION*\n\n` +
+      `Before using Mallu Match, you must confirm that you meet the required age and safety guidelines:\n\n` +
+      `1️⃣ You are **18 years or older**.\n` +
+      `2️⃣ You agree to follow our community rules (No illegal content, harassment, or scams).\n` +
+      `3️⃣ Violation of safety rules will result in an immediate permanent ban and report.\n\n` +
+      `Please confirm below to proceed:`;
+
+    return ctx.replyWithMarkdown(ageGateText, get18PlusVerificationKeyboard());
+  } catch (err) {
+    console.error('Error in bot.start:', err);
+    return ctx.reply('👋 Welcome to Mallu Match! Tap /start to begin.');
   }
-
-  // If already verified and unlocked, show main menu directly
-  if (verifiedUsers.has(userId) && unlockedShareUsers.has(userId)) {
-    return ctx.reply('🌴 Welcome back to Mallu Match! Tap "🔍 Find Partner" to start chatting.', getMainMenuKeyboard());
-  }
-
-  const ageGateText = 
-    `🔞 *MALLU MATCH - AGE & SAFETY VERIFICATION*\n\n` +
-    `Before using Mallu Match, you must confirm that you meet the required age and safety guidelines:\n\n` +
-    `1️⃣ You are **18 years or older**.\n` +
-    `2️⃣ You agree to follow our community rules (No illegal content, harassment, or scams).\n` +
-    `3️⃣ Violation of safety rules will result in an immediate permanent ban and report.\n\n` +
-    `Please confirm below to proceed:`;
-
-  return ctx.replyWithMarkdown(ageGateText, get18PlusVerificationKeyboard());
 });
 
 /**
