@@ -12,7 +12,7 @@ http.createServer((req, res) => {
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const queue = require('./queue');
 const session = require('./session');
 const admin = require('./admin');
@@ -53,9 +53,10 @@ const saveSetToFile = (filePath, setInstance) => {
   }
 };
 
-// Persistent Sets
+// Persistent & Active Tracking Sets
 const registeredUsers = new Set();
 const unlockedShareUsers = loadSetFromFile(UNLOCKED_FILE);
+const shareClickedUsers = new Set();
 
 let botUsername = 'MalluMatchBot';
 
@@ -105,6 +106,7 @@ bot.start(async (ctx) => {
 
     // Reset share lock when user triggers /start (e.g. after clearing chat/restarting bot)
     unlockedShareUsers.delete(userId);
+    shareClickedUsers.delete(userId);
     saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
 
     const sharePromptText = 
@@ -114,7 +116,7 @@ bot.start(async (ctx) => {
       `1️⃣ Tap **📲 Share to 2 Groups** below.\n` +
       `2️⃣ Tap **✅ Verify & Start Chatting** to begin!`;
 
-    return ctx.replyWithMarkdown(sharePromptText, getShareToUnlockKeyboard(botUsername));
+    return ctx.replyWithMarkdown(sharePromptText, getShareToUnlockKeyboard());
   } catch (err) {
     console.error('Error in bot.start:', err);
     return ctx.reply('👋 Welcome to Mallu Match! Tap /start to begin.');
@@ -122,10 +124,46 @@ bot.start(async (ctx) => {
 });
 
 /**
- * Verify Shares Callback - Unlocks Chat & Shows Find Partner
+ * Click Share Action Callback - Tracks share button tap
+ */
+bot.action('click_share', async (ctx) => {
+  const userId = ctx.from.id;
+  shareClickedUsers.add(userId);
+  await ctx.answerCbQuery('📲 Opening Telegram Share...');
+
+  const shareText = encodeURIComponent(`🌴 Join Mallu Chat - #1 Anonymous Random Chat Bot for Malayalis! Connect 100% anonymously for text & photo chat: https://t.me/${botUsername}`);
+  const shareUrl = `https://t.me/share/url?url=${shareText}`;
+
+  const text = 
+    `📲 *STEP 1 COMPLETE: SHARE TO 2 GROUPS*\n\n` +
+    `Tap **↗️ Open Telegram Group Picker** below to send the bot link to 2 groups/friends, then click **✅ Verify & Start Chatting**!`;
+
+  return ctx.editMessageText(text, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.url('↗️ Open Telegram Group Picker', shareUrl)],
+      [Markup.button.callback('✅ Verify & Start Chatting', 'verify_shares')]
+    ])
+  });
+});
+
+/**
+ * Verify Shares Callback - Strictly checks if user tapped Share button first
  */
 bot.action('verify_shares', async (ctx) => {
   const userId = ctx.from.id;
+
+  // STRICT SECURITY CHECK: Did the user tap the Share button first?
+  if (!shareClickedUsers.has(userId)) {
+    await ctx.answerCbQuery('⚠️ Access Denied! Please tap Share to 2 Groups first!', { show_alert: true });
+    return ctx.reply(
+      '⚠️ *ACCESS DENIED*\n\nYou MUST tap **📲 Share to 2 Groups to Unlock Chat** first before clicking verify!',
+      {
+        parse_mode: 'Markdown',
+        ...getShareToUnlockKeyboard()
+      }
+    );
+  }
 
   unlockedShareUsers.add(userId);
   saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
@@ -195,7 +233,7 @@ const startSearch = async (ctx) => {
       '📢 *UNLOCK CHAT REQUIRED*\n\nPlease share this bot link to 2 Telegram groups or friends to unlock random chatting!',
       {
         parse_mode: 'Markdown',
-        ...getShareToUnlockKeyboard(botUsername)
+        ...getShareToUnlockKeyboard()
       }
     );
   }
@@ -704,7 +742,7 @@ bot.on('message', async (ctx) => {
       '📢 *UNLOCK CHAT REQUIRED*\n\nPlease share this bot link to 2 Telegram groups or friends to unlock random chatting!',
       {
         parse_mode: 'Markdown',
-        ...getShareToUnlockKeyboard(botUsername)
+        ...getShareToUnlockKeyboard()
       }
     );
   }
