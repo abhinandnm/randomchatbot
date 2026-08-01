@@ -626,19 +626,22 @@ function setupBotHandlers(bot) {
   });
 }
 
-// Launch all bot instances
+// Launch all bot instances independently
 console.log(`⏳ Launching ${botInstances.length} Telegram Bot instances...`);
-Promise.all(botInstances.map(b => b.launch())).then(() => {
-  console.log(`🚀 ${botInstances.length} Telegram Bot Instance(s) up and running successfully!`);
-  dashboard.addLiveLog('system', `All ${botInstances.length} Telegram Bot instances connected and online.`);
-  if (ADMIN_ID) {
-    console.log(`🛡️ Admin Panel enabled for Admin Telegram ID: ${ADMIN_ID}`);
-  }
-  console.log('Press Ctrl+C to stop.');
-}).catch((err) => {
-  console.error('❌ Failed to launch Telegram Bot(s):', err.message);
-  dashboard.addLiveLog('system', `Launch Error: ${err.message}`);
+botInstances.forEach((b, index) => {
+  b.launch().then(() => {
+    console.log(`🚀 Bot Instance #${index + 1} connected successfully!`);
+    dashboard.addLiveLog('system', `Bot Instance #${index + 1} connected successfully.`);
+  }).catch((err) => {
+    console.error(`❌ Failed to launch Bot Instance #${index + 1}:`, err.message);
+    dashboard.addLiveLog('system', `Bot Instance #${index + 1} Launch Error: ${err.message}`);
+  });
 });
+
+if (ADMIN_ID) {
+  console.log(`🛡️ Admin Panel enabled for Admin Telegram ID: ${ADMIN_ID}`);
+}
+console.log('Press Ctrl+C to stop.');
 
 // Enable graceful stop
 process.once('SIGINT', () => botInstances.forEach(b => b.stop('SIGINT')));
