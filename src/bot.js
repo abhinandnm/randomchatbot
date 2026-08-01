@@ -140,13 +140,14 @@ function setupBotHandlers(bot) {
       shareClickedUsers.delete(userId);
       saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
 
-      const me = await bot.telegram.getMe().catch(() => ({ username: 'MalluMatchBot' }));
+      const me = await bot.telegram.getMe().catch(() => ({ first_name: 'Mallu Chat', username: 'MalluMatchBot' }));
       const activeUsername = me.username || 'MalluMatchBot';
+      const activeName = (me.first_name || 'Mallu Chat').toUpperCase();
 
       const sharePromptText = 
-        `🌴 *WELCOME TO MALLU CHAT!* 🌴\n\n` +
+        `✨ *WELCOME TO ${activeName}!* ✨\n\n` +
         `📢 *SHARE TO UNLOCK CHAT*\n` +
-        `To keep Mallu Chat active and growing, please **share this bot link to 2 Telegram groups or friends** to unlock random chatting!\n\n` +
+        `To keep ${me.first_name} active and growing, please **share this bot link to 2 Telegram groups or friends** to unlock random chatting!\n\n` +
         `1️⃣ Tap **📲 Share to 2 Groups** below.\n` +
         `2️⃣ Tap **✅ Verify & Start Chatting** to begin!`;
 
