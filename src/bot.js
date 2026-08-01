@@ -9,6 +9,8 @@ http.createServer((req, res) => {
   console.log(`🌐 Health check server bound successfully on 0.0.0.0:${PORT}`);
 });
 
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const queue = require('./queue');
@@ -28,10 +30,37 @@ const {
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID ? Number(process.env.ADMIN_ID) : null;
 
-// Track unique users, 18+ verified status, and share-unlocked status
+// Persistent User State Files
+const VERIFIED_FILE = path.join(__dirname, '..', 'verified_users.json');
+const UNLOCKED_FILE = path.join(__dirname, '..', 'unlocked_users.json');
+
+// Helper to load IDs from JSON file
+const loadSetFromFile = (filePath) => {
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return new Set(data);
+    }
+  } catch (err) {
+    console.error(`Failed to load ${filePath}:`, err.message);
+  }
+  return new Set();
+};
+
+// Helper to save IDs to JSON file
+const saveSetToFile = (filePath, setInstance) => {
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(Array.from(setInstance), null, 2), 'utf8');
+  } catch (err) {
+    console.error(`Failed to save ${filePath}:`, err.message);
+  }
+};
+
+// Persistent Sets
 const registeredUsers = new Set();
-const verifiedUsers = new Set();
-const unlockedShareUsers = new Set();
+const verifiedUsers = loadSetFromFile(VERIFIED_FILE);
+const unlockedShareUsers = loadSetFromFile(UNLOCKED_FILE);
+const shareClickedUsers = new Set();
 
 let botUsername = 'MalluMatchBot';
 
@@ -105,6 +134,7 @@ bot.start(async (ctx) => {
 bot.action('verify_18', async (ctx) => {
   const userId = ctx.from.id;
   verifiedUsers.add(userId);
+  saveSetToFile(VERIFIED_FILE, verifiedUsers);
   await ctx.answerCbQuery('✅ Age & Terms verified!');
 
   if (unlockedShareUsers.has(userId)) {
@@ -147,6 +177,7 @@ bot.action('verify_shares', async (ctx) => {
   const userId = ctx.from.id;
 
   unlockedShareUsers.add(userId);
+  saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
   await ctx.answerCbQuery('🎉 Chat Unlocked!');
   await ctx.editMessageText('🎉 *SHARE VERIFIED! CHAT UNLOCKED!*\n\nThank you for sharing! You can now start matching with partners.', { parse_mode: 'Markdown' });
   return ctx.reply('👇 Tap *🔍 Find Partner* below to start chatting!', getMainMenuKeyboard());
