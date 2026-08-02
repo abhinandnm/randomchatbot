@@ -1,3 +1,6 @@
+const crypto = require('crypto');
+const url = require('url');
+
 // Secret Nonces & Cryptographic Sessions
 const activeNonces = new Map();
 const activeSessions = new Set();
