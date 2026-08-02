@@ -8,7 +8,7 @@ const activeSessions = new Set();
 // Anti-Brute-Force & Rate Limiting System
 const failedAttempts = new Map(); // IP -> { count, lockUntil }
 const LOCKOUT_THRESHOLD = 5; // 5 failed attempts
-const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes lockout
+const LOCKOUT_TIME = 90 * 60 * 1000; // 90 minutes lockout
 
 // Helper for constant-time string comparison (prevents timing side-channel attacks)
 function safeCompare(a, b) {
@@ -757,18 +757,13 @@ function getDashboardHTML() {
     setInterval(updateISTClock, 1000);
     updateISTClock();
 
-      localStorage.removeItem('tg_admin_token');
-      localStorage.removeItem('tg_admin_privkey');
-      sessionToken = '';
-      consoleLayout.style.display = 'none';
-      authScreen.style.display = 'flex';
-    });
-
     async function verifyAndLoadConsole() {
+      authErrorMsg.style.display = 'none';
       try {
         const res = await fetch('/api/admin/stats', {
           headers: { 'Authorization': 'Bearer ' + sessionToken }
         });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           authScreen.style.display = 'none';
           consoleLayout.style.display = 'flex';
@@ -782,10 +777,11 @@ function getDashboardHTML() {
           sessionToken = '';
           authScreen.style.display = 'flex';
           consoleLayout.style.display = 'none';
-          authErrorMsg.innerText = '⚠️ Session expired. Please upload your .pem key file to log in.';
+          authErrorMsg.innerText = data.error || '❌ Invalid Admin Password or Secret Key.';
           authErrorMsg.style.display = 'block';
         }
       } catch (err) {
+        authErrorMsg.innerText = '❌ Connection Error: ' + err.message;
         authErrorMsg.style.display = 'block';
       }
     }
@@ -971,9 +967,9 @@ async function handleHTTPRequests(req, res, context) {
   const attemptData = failedAttempts.get(clientIP) || { count: 0, lockUntil: 0 };
 
   if (Date.now() < attemptData.lockUntil) {
-    const remainingSecs = Math.ceil((attemptData.lockUntil - Date.now()) / 1000);
+    const remainingMins = Math.ceil((attemptData.lockUntil - Date.now()) / (60 * 1000));
     res.writeHead(429, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: `🚫 Too many failed login attempts! IP locked out for ${remainingSecs}s.` }));
+    return res.end(JSON.stringify({ error: `🚫 IP LOCKED OUT! Too many failed attempts (5/5). Try again in ${remainingMins} minutes.` }));
   }
 
   // Helper Auth Verification - Constant-Time Security
@@ -996,7 +992,7 @@ async function handleHTTPRequests(req, res, context) {
 
     if (attemptData.count >= LOCKOUT_THRESHOLD) {
       attemptData.lockUntil = Date.now() + LOCKOUT_TIME;
-      addLiveLog('report', `🚨 SECURITY ALERT: IP ${clientIP} LOCKED OUT for 15 minutes due to brute-force detection!`);
+      addLiveLog('report', `🚨 SECURITY ALERT: IP ${clientIP} LOCKED OUT for 90 minutes due to 5 failed login attempts!`);
     }
 
     failedAttempts.set(clientIP, attemptData);
@@ -1005,12 +1001,20 @@ async function handleHTTPRequests(req, res, context) {
     failedAttempts.delete(clientIP);
   }
 
+  // Helper function for 401 response with attempt counter
+  const sendUnauthorized = () => {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    const count = attemptData.count || 1;
+    const remaining = LOCKOUT_THRESHOLD - count;
+    const msg = remaining > 0 
+      ? `❌ Invalid Password or Key! Failed attempt ${count}/${LOCKOUT_THRESHOLD} (${remaining} attempts remaining).` 
+      : `🚫 Too many failed attempts! IP locked out for 90 minutes.`;
+    return res.end(JSON.stringify({ error: msg }));
+  };
+
   // 3. API Stats Endpoint (/api/admin/stats)
   if (pathname === '/api/admin/stats') {
-    if (!isValidAuth) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Unauthorized' }));
-    }
+    if (!isValidAuth) return sendUnauthorized();
 
     const { queue, session, admin, aiPartner, registeredUsers, botInstances } = context;
 
@@ -1028,10 +1032,7 @@ async function handleHTTPRequests(req, res, context) {
 
   // 4. API Logs Endpoint (/api/admin/logs)
   if (pathname === '/api/admin/logs') {
-    if (!isValidAuth) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Unauthorized' }));
-    }
+    if (!isValidAuth) return sendUnauthorized();
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(liveLogs));
@@ -1039,10 +1040,7 @@ async function handleHTTPRequests(req, res, context) {
 
   // 5. API Action Endpoint (/api/admin/action)
   if (pathname === '/api/admin/action' && req.method === 'POST') {
-    if (!isValidAuth) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Unauthorized' }));
-    }
+    if (!isValidAuth) return sendUnauthorized();
 
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
