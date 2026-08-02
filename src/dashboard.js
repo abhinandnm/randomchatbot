@@ -548,52 +548,29 @@ function getDashboardHTML() {
 
   <!-- Authentication Screen -->
   <div id="auth-screen">
-    <div class="auth-card" style="max-width: 480px; width: 100%;">
+    <div class="auth-card" style="max-width: 440px; width: 100%;">
       <div class="auth-header" style="text-align: center;">
         <div class="auth-icon" style="margin: 0 auto 12px auto;">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 2l-2 2m-2-2l2 2m7 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            <rect x="7" y="11" width="10" height="8" rx="2" />
-            <path d="M12 7v4" />
+            <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
         </div>
-        <h1 class="auth-title">Cryptographic PKI Admin Console</h1>
-        <p class="auth-subtitle">Asymmetric RSA-2048 Signature Authentication</p>
+        <h1 class="auth-title">Admin Console Login</h1>
+        <p class="auth-subtitle">Enter your Secret Admin Key or Password</p>
       </div>
 
-      <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
-        <!-- Option 1: Upload Existing PEM (Nested Native Label) -->
-        <label for="key-file-input" class="auth-btn" style="background: var(--accent-blue); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; user-select: none;">
-          📁 Upload Private Key (.pem file)
-          <input type="file" id="key-file-input" style="display: none;" accept=".pem,.key,.txt,*">
-        </label>
-
-        <div style="display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; margin: 4px 0;">
-          <div style="flex: 1; border-bottom: 1px solid var(--border-color);"></div>
-          <span>OR</span>
-          <div style="flex: 1; border-bottom: 1px solid var(--border-color);"></div>
+      <form id="auth-form" onsubmit="return false;" style="margin-top: 20px;">
+        <div class="auth-form-group">
+          <label class="auth-label">Admin Secret / Password</label>
+          <input type="password" id="auth-key-input" class="auth-input" placeholder="Enter password (e.g. admin123 or ADMIN_ID)..." style="font-size: 14px; padding: 12px;" />
         </div>
 
-        <!-- Option 2: Generate & Auto-Download New Keypair -->
-        <button id="gen-key-btn" type="button" class="auth-btn" style="background: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
-          🔑 Generate & Auto-Download New Keypair (.pem)
+        <button type="submit" id="auth-submit-btn" class="auth-btn" style="background: var(--accent-blue); padding: 14px; font-size: 14px; font-weight: 600; width: 100%; cursor: pointer;">
+          🔓 Unlock Admin Console
         </button>
-      </div>
+      </form>
 
-      <div id="pubkey-display-box" style="display: none; background: var(--bg-card); padding: 12px; border-radius: 6px; border: 1px solid var(--border-active); margin-top: 16px; text-align: left;">
-        <label style="font-size: 11px; color: var(--accent-blue); display: block; margin-bottom: 6px; font-weight: 600;">Copy this Public Key to Render Environment (ADMIN_PUBLIC_KEY):</label>
-        <textarea id="pubkey-output" style="width: 100%; height: 80px; background: var(--bg-surface); color: var(--accent-green); border: 1px solid var(--border-color); border-radius: 4px; font-family: monospace; font-size: 10px; padding: 6px;" readonly></textarea>
-      </div>
-
-      <!-- Real-Time Cryptographic Auth Progress Status Box -->
-      <div id="auth-progress-box" style="display: none; background: var(--bg-card); border: 1px solid var(--border-active); padding: 12px; border-radius: 6px; margin-top: 14px; text-align: left;">
-        <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; color: var(--accent-blue);">
-          <span id="auth-progress-title">🔄 Processing Key File...</span>
-        </div>
-        <div id="auth-progress-desc" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-family: monospace;"></div>
-      </div>
-
-      <div id="auth-error-msg" class="auth-status" style="display: none; margin-top: 14px;">❌ Invalid Cryptographic Signature</div>
+      <div id="auth-error-msg" class="auth-status" style="display: none; margin-top: 14px; text-align: center;">❌ Invalid Admin Password or Secret Key</div>
     </div>
   </div>
 
@@ -613,7 +590,7 @@ function getDashboardHTML() {
 
       <div class="header-actions">
         <span class="key-badge" id="ist-live-clock" style="background: var(--bg-card); color: var(--accent-amber); border: 1px solid var(--border-color); font-weight: 600;">🇮🇳 IST: Syncing...</span>
-        <span class="key-badge">AUTH: RSA PKI VERIFIED</span>
+        <span class="key-badge">ADMIN AUTHENTICATED</span>
         <button id="logout-btn" class="btn-secondary">Disconnect Session</button>
       </div>
     </header>
@@ -737,78 +714,38 @@ function getDashboardHTML() {
     let sessionToken = localStorage.getItem('tg_admin_token') || '';
     const authScreen = document.getElementById('auth-screen');
     const consoleLayout = document.getElementById('console-layout');
+    const authKeyInput = document.getElementById('auth-key-input');
+    const authSubmitBtn = document.getElementById('auth-submit-btn');
     const authErrorMsg = document.getElementById('auth-error-msg');
     const logoutBtn = document.getElementById('logout-btn');
 
-    let devicePrivKey = localStorage.getItem('tg_admin_privkey') || '';
-
-    // Auto-login if session token or saved device key exists
-    if (sessionToken) {
-      verifyAndLoadConsole();
-    } else if (devicePrivKey) {
-      authenticateWithPrivateKey(devicePrivKey);
+    // Auto-check URL secret key parameter ?key=xxx
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('key')) {
+      sessionToken = urlParams.get('key');
+      localStorage.setItem('tg_admin_token', sessionToken);
     }
 
-    // 1. Option 1: Upload Private Key PEM File (Native Label Trigger)
-    const keyFileInput = document.getElementById('key-file-input');
+    if (sessionToken) {
+      verifyAndLoadConsole();
+    }
 
-    keyFileInput.addEventListener('click', () => {
-      keyFileInput.value = '';
-    });
+    const handleLogin = () => {
+      const passwordVal = authKeyInput.value.trim();
+      if (!passwordVal) return alert('Please enter your Admin Password or Key');
+      sessionToken = passwordVal;
+      verifyAndLoadConsole();
+    };
 
-    keyFileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      showAuthProgress('📁 PEM File Uploaded', \`File: "\${file.name}" (\${file.size} bytes)\`);
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        try {
-          const privKeyPem = event.target.result.trim();
-          await authenticateWithPrivateKey(privKeyPem, file.name);
-        } catch (err) {
-          showAuthProgress('❌ Key Read Error', err.message, true);
-        }
-      };
-      reader.onerror = () => {
-        showAuthProgress('❌ File Error', 'Failed to read selected file', true);
-      };
-      reader.readAsText(file);
-    });
+    authSubmitBtn.addEventListener('click', handleLogin);
+    document.getElementById('auth-form').addEventListener('submit', handleLogin);
 
-    // 2. Option 2: Generate & Auto-Download New Keypair
-    document.getElementById('gen-key-btn').addEventListener('click', async () => {
-      try {
-        const keyPair = await window.crypto.subtle.generateKey(
-          { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
-          true,
-          ["sign", "verify"]
-        );
-        const exportedPriv = await window.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-        const exportedPub = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
-
-        const formatPem = (b64, type) => \`-----BEGIN \${type}-----\\n\${b64.match(/.{1,64}/g).join('\\n')}\\n-----END \${type}-----\`;
-        const privPem = formatPem(btoa(String.fromCharCode(...new Uint8Array(exportedPriv))), "PRIVATE KEY");
-        const pubPem = formatPem(btoa(String.fromCharCode(...new Uint8Array(exportedPub))), "PUBLIC KEY");
-
-        // Automatically download admin_private_key.pem to user's computer
-        const blob = new Blob([privPem], { type: 'application/x-pem-file' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'admin_private_key.pem';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-
-        // Display Public Key for Render Environment
-        document.getElementById('pubkey-output').value = pubPem;
-        document.getElementById('pubkey-display-box').style.display = 'block';
-        window.lastGeneratedPubKey = pubPem;
-
-        // Auto authenticate with the newly generated private key
-        await authenticateWithPrivateKey(privPem);
-      } catch (err) {
-        alert('Failed to generate key pair: ' + err.message);
-      }
+    logoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('tg_admin_token');
+      sessionToken = '';
+      authKeyInput.value = '';
+      consoleLayout.style.display = 'none';
+      authScreen.style.display = 'flex';
     });
 
     function updateISTClock() {
@@ -820,155 +757,6 @@ function getDashboardHTML() {
     setInterval(updateISTClock, 1000);
     updateISTClock();
 
-    async function derivePublicKey(importedPrivKey) {
-      try {
-        const jwk = await window.crypto.subtle.exportKey("jwk", importedPrivKey);
-        const pubJwk = { kty: "RSA", n: jwk.n, e: jwk.e, ext: true };
-        const pubKey = await window.crypto.subtle.importKey(
-          "jwk",
-          pubJwk,
-          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-          true,
-          ["verify"]
-        );
-        const spki = await window.crypto.subtle.exportKey("spki", pubKey);
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(spki)));
-        return \`-----BEGIN PUBLIC KEY-----\\n\${b64.match(/.{1,64}/g).join('\\n')}\\n-----END PUBLIC KEY-----\`;
-      } catch (err) {
-        console.error('derivePublicKey error:', err);
-        return null;
-      }
-    }
-
-    function extractBase64FromPem(pemText) {
-      const lines = pemText.split(/\r?\n/);
-      const base64Lines = lines.filter(line => {
-        const trimmed = line.trim();
-        return trimmed && !trimmed.startsWith('-----') && !trimmed.includes(':');
-      });
-      let b64 = base64Lines.join('').replace(/\s+/g, '');
-      while (b64.length % 4 !== 0) {
-        b64 += '=';
-      }
-      return b64;
-    }
-
-    async function importAnyRSAPrivateKey(pemText) {
-      const b64 = extractBase64FromPem(pemText);
-      const binaryStr = atob(b64);
-      const der = Uint8Array.from(binaryStr, c => c.charCodeAt(0)).buffer;
-
-      try {
-        return await window.crypto.subtle.importKey(
-          "pkcs8",
-          der,
-          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-          true,
-          ["sign"]
-        );
-      } catch (err) {
-        const pkcs1Bytes = new Uint8Array(der);
-        const rsaOidHeader = new Uint8Array([
-          0x30, 0x82, (pkcs1Bytes.length + 22) >> 8, (pkcs1Bytes.length + 22) & 0xff,
-          0x02, 0x01, 0x00,
-          0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
-          0x04, 0x82, pkcs1Bytes.length >> 8, pkcs1Bytes.length & 0xff
-        ]);
-        const pkcs8Der = new Uint8Array(rsaOidHeader.length + pkcs1Bytes.length);
-        pkcs8Der.set(rsaOidHeader, 0);
-        pkcs8Der.set(pkcs1Bytes, rsaOidHeader.length);
-
-        return await window.crypto.subtle.importKey(
-          "pkcs8",
-          pkcs8Der.buffer,
-          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-          true,
-          ["sign"]
-        );
-      }
-    }
-
-    function showAuthProgress(title, desc, isError = false) {
-      const box = document.getElementById('auth-progress-box');
-      const titleEl = document.getElementById('auth-progress-title');
-      const descEl = document.getElementById('auth-progress-desc');
-      if (box && titleEl && descEl) {
-        box.style.display = 'block';
-        titleEl.innerText = title;
-        titleEl.style.color = isError ? 'var(--accent-red)' : 'var(--accent-blue)';
-        descEl.innerText = desc;
-      }
-    }
-
-    async function authenticateWithPrivateKey(privateKeyPem, filename = 'Key File') {
-      authErrorMsg.style.display = 'none';
-      showAuthProgress('📁 Key Received by Client Engine', \`Source: \${filename} (\${privateKeyPem.length} chars)\`);
-
-      try {
-        showAuthProgress('⚡ Requesting Server Challenge Nonce...', 'Connecting to /api/admin/auth/challenge...');
-        const challengeRes = await fetch('/api/admin/auth/challenge');
-        const { nonce } = await challengeRes.json();
-
-        showAuthProgress('🔐 Importing & Parsing RSA Private Key...', 'Constructing PKCS#8 DER structure...');
-        const importedKey = await importAnyRSAPrivateKey(privateKeyPem);
-
-        showAuthProgress('🔑 Deriving Public Key Fingerprint...', 'Generating matching RSA SPKI public key...');
-        const derivedPubKey = await derivePublicKey(importedKey);
-
-        if (derivedPubKey) {
-          document.getElementById('pubkey-output').value = derivedPubKey;
-          document.getElementById('pubkey-display-box').style.display = 'block';
-        }
-
-        showAuthProgress('✍️ Signing Challenge Nonce...', 'WebCrypto RSASSA-PKCS1-v1_5 SHA-256 signature...');
-        const encoder = new TextEncoder();
-        const signatureBuf = await window.crypto.subtle.sign(
-          "RSASSA-PKCS1-v1_5",
-          importedKey,
-          encoder.encode(nonce)
-        );
-
-        const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signatureBuf)));
-
-        showAuthProgress('🌐 Transmitting Signature to Render Server...', 'POST /api/admin/auth/verify_signature...');
-        const verifyRes = await fetch('/api/admin/auth/verify_signature', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nonce, signature: signatureBase64, publicKey: derivedPubKey || window.lastGeneratedPubKey || undefined })
-        });
-
-        const verifyData = await verifyRes.json();
-        if (verifyRes.ok && verifyData.token) {
-          showAuthProgress('✅ VERIFIED & AUTHENTICATED!', 'Cryptographic Session Token Issued. Opening Console...');
-          sessionToken = verifyData.token;
-          localStorage.setItem('tg_admin_token', sessionToken);
-          localStorage.setItem('tg_admin_privkey', privateKeyPem);
-          
-          setTimeout(() => {
-            authScreen.style.display = 'none';
-            consoleLayout.style.display = 'flex';
-            fetchStats();
-            fetchLogs();
-            setInterval(fetchStats, 3000);
-            setInterval(fetchLogs, 2000);
-          }, 600);
-        } else {
-          localStorage.removeItem('tg_admin_privkey');
-          const errMsg = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
-          showAuthProgress('❌ SERVER REJECTED SIGNATURE', verifyData.error || 'Invalid signature. Make sure ADMIN_PUBLIC_KEY is set in Render.', true);
-          authErrorMsg.innerText = errMsg;
-          authErrorMsg.style.display = 'block';
-        }
-      } catch (err) {
-        localStorage.removeItem('tg_admin_privkey');
-        const errMsg = '❌ Key Error: ' + err.message;
-        showAuthProgress('❌ CLIENT KEY ERROR', err.message, true);
-        authErrorMsg.innerText = errMsg;
-        authErrorMsg.style.display = 'block';
-      }
-    }
-
-    logoutBtn.addEventListener('click', () => {
       localStorage.removeItem('tg_admin_token');
       localStorage.removeItem('tg_admin_privkey');
       sessionToken = '';
@@ -1188,12 +976,18 @@ async function handleHTTPRequests(req, res, context) {
     return res.end(JSON.stringify({ error: `🚫 Too many failed login attempts! IP locked out for ${remainingSecs}s.` }));
   }
 
-  // Helper Auth Verification - STRICT CRYPTOGRAPHIC PKI ONLY (Active signed sessions only)
+  // Helper Auth Verification - Constant-Time Security
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace('Bearer ', '').trim() || query.key || '';
 
-  // ONLY tokens generated via valid RSA/Ed25519 Public/Private Key Signature Verification are valid!
-  const isValidAuth = Boolean(token && activeSessions.has(token));
+  const adminPass = process.env.ADMIN_PASSWORD || process.env.ADMIN_KEY || 'admin123';
+  const adminId = process.env.ADMIN_ID ? String(process.env.ADMIN_ID) : '';
+
+  const isSessionValid = token && activeSessions.has(token);
+  const isPassValid = token && adminPass && safeCompare(token, adminPass);
+  const isIdValid = token && adminId && safeCompare(token, adminId);
+
+  const isValidAuth = isSessionValid || isPassValid || isIdValid;
 
   if (token && !isValidAuth) {
     // Record failed attempt
