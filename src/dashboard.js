@@ -666,19 +666,7 @@ function getDashboardHTML() {
           </div>
           
           <div class="panel-body">
-            <!-- AI Bot Companion Toggle -->
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <span class="toggle-title">AI Stranger Companion</span>
-                <span class="toggle-desc">Fallback chat when 0 human queue</span>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="ai-toggle-input">
-                <span class="slider"></span>
-              </label>
-            </div>
 
-            <hr style="border: none; border-top: 1px solid var(--border-color);" />
 
             <!-- User Ban / Restrict Form -->
             <div class="form-group">
@@ -785,7 +773,6 @@ function getDashboardHTML() {
         document.getElementById('val-waiting-queue').innerText = data.waitingQueue || 0;
         document.getElementById('val-total-matches').innerText = data.totalMatches || 0;
 
-        document.getElementById('ai-toggle-input').checked = !!data.aiEnabled;
       } catch (err) {}
     }
 
@@ -815,10 +802,6 @@ function getDashboardHTML() {
     }
 
     // Controls
-    document.getElementById('ai-toggle-input').addEventListener('change', async (e) => {
-      await sendAction('toggle_ai', { enabled: e.target.checked });
-    });
-
     document.getElementById('btn-submit-ban').addEventListener('click', async () => {
       const targetId = document.getElementById('ban-user-id').value.trim();
       const reason = document.getElementById('ban-reason').value.trim() || 'Banned via Admin Console';
