@@ -730,17 +730,43 @@ function getDashboardHTML() {
       verifyAndLoadConsole();
     }
 
-    const handleLogin = () => {
+    let statsInterval = null;
+    let logsInterval = null;
+
+    const handleLogin = async () => {
       const passwordVal = authKeyInput.value.trim();
       if (!passwordVal) return alert('Please enter your Admin Password or Key');
-      sessionToken = passwordVal;
-      verifyAndLoadConsole();
+      
+      authErrorMsg.style.display = 'none';
+      try {
+        const res = await fetch('/api/admin/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: passwordVal })
+        });
+        const data = await res.json();
+        if (res.ok && data.token) {
+          sessionToken = data.token;
+          localStorage.setItem('tg_admin_token', sessionToken);
+          verifyAndLoadConsole();
+        } else {
+          authErrorMsg.innerText = data.error || '❌ Invalid Password';
+          authErrorMsg.style.display = 'block';
+        }
+      } catch (err) {
+        authErrorMsg.innerText = '❌ Connection Error: ' + err.message;
+        authErrorMsg.style.display = 'block';
+      }
     };
 
     authSubmitBtn.addEventListener('click', handleLogin);
-    document.getElementById('auth-form').addEventListener('submit', handleLogin);
+    document.getElementById('auth-form').addEventListener('submit', (e) => { e.preventDefault(); handleLogin(); });
 
     logoutBtn.addEventListener('click', () => {
+      clearInterval(statsInterval);
+      clearInterval(logsInterval);
+      statsInterval = null;
+      logsInterval = null;
       localStorage.removeItem('tg_admin_token');
       sessionToken = '';
       authKeyInput.value = '';
@@ -770,14 +796,18 @@ function getDashboardHTML() {
           localStorage.setItem('tg_admin_token', sessionToken);
           fetchStats();
           fetchLogs();
-          setInterval(fetchStats, 3000);
-          setInterval(fetchLogs, 2000);
+          if (!statsInterval) statsInterval = setInterval(fetchStats, 3000);
+          if (!logsInterval) logsInterval = setInterval(fetchLogs, 2000);
         } else {
+          clearInterval(statsInterval);
+          clearInterval(logsInterval);
+          statsInterval = null;
+          logsInterval = null;
           localStorage.removeItem('tg_admin_token');
           sessionToken = '';
           authScreen.style.display = 'flex';
           consoleLayout.style.display = 'none';
-          authErrorMsg.innerText = data.error || '❌ Invalid Admin Password or Secret Key.';
+          authErrorMsg.innerText = data.error || '❌ Session Expired. Please log in.';
           authErrorMsg.style.display = 'block';
         }
       } catch (err) {
@@ -983,46 +1013,60 @@ async function handleHTTPRequests(req, res, context) {
     failedAttempts.delete(clientIP);
   }
 
-  // IF AUTHENTICATION IS VALID (Correct Password/Token):
-  if (isValidAuth) {
-    // Always unlock and clear failed attempt history on correct password
-    failedAttempts.delete(clientIP);
-  } else if (token) {
-    // ONLY IF WRONG PASSWORD WAS ENTERED:
-    // Check if IP is currently locked out from 5 failed wrong attempts
-    if (Date.now() < attemptData.lockUntil) {
-      const remainingMins = Math.ceil((attemptData.lockUntil - Date.now()) / (60 * 1000));
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: `🚫 IP LOCKED OUT! Too many failed attempts (5/5). Try again in ${remainingMins} minutes.` }));
-    }
+  // 2b. Explicit Admin Login Endpoint (/api/admin/auth/login)
+  if (pathname === '/api/admin/auth/login' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const { password } = JSON.parse(body || '{}');
+        const passValid = password && adminPass && safeCompare(password, adminPass);
+        const idValid = password && adminId && safeCompare(password, adminId);
 
-    // Record failed attempt for WRONG password
-    attemptData.count = (attemptData.count || 0) + 1;
-    addLiveLog('report', `Failed admin authentication attempt from IP: ${clientIP} (Attempt ${attemptData.count}/${LOCKOUT_THRESHOLD})`);
+        if (passValid || idValid) {
+          failedAttempts.delete(clientIP);
+          const token = crypto.randomBytes(32).toString('hex');
+          activeSessions.add(token);
+          addLiveLog('admin', 'Admin Password Authentication Successful.');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true, token }));
+        } else {
+          // Increment failed attempt ONLY on explicit password form submission
+          attemptData.count = (attemptData.count || 0) + 1;
+          addLiveLog('report', `Failed login attempt from IP: ${clientIP} (Attempt ${attemptData.count}/${LOCKOUT_THRESHOLD})`);
 
-    if (attemptData.count >= LOCKOUT_THRESHOLD) {
-      attemptData.lockUntil = Date.now() + LOCKOUT_TIME;
-      addLiveLog('report', `🚨 SECURITY ALERT: IP ${clientIP} LOCKED OUT for 90 minutes due to 5 failed login attempts!`);
-    }
+          if (attemptData.count >= LOCKOUT_THRESHOLD) {
+            attemptData.lockUntil = Date.now() + LOCKOUT_TIME;
+            addLiveLog('report', `🚨 SECURITY ALERT: IP ${clientIP} LOCKED OUT for 90 minutes due to 5 failed login attempts!`);
+          }
 
-    failedAttempts.set(clientIP, attemptData);
+          failedAttempts.set(clientIP, attemptData);
+
+          const remaining = Math.max(0, LOCKOUT_THRESHOLD - attemptData.count);
+          const msg = remaining > 0 
+            ? `❌ Invalid Password! Failed attempt ${attemptData.count}/${LOCKOUT_THRESHOLD} (${remaining} attempts remaining).` 
+            : `🚫 Too many failed attempts! IP locked out for 90 minutes.`;
+
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: msg }));
+        }
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Invalid request' }));
+      }
+    });
+    return;
   }
 
-  // Helper function for 401 response with attempt counter
-  const sendUnauthorized = () => {
-    if (Date.now() < attemptData.lockUntil) {
-      const remainingMins = Math.ceil((attemptData.lockUntil - Date.now()) / (60 * 1000));
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: `🚫 IP LOCKED OUT! Too many failed attempts (5/5). Try again in ${remainingMins} minutes.` }));
-    }
+  // IF AUTHENTICATION IS VALID (Correct Password/Token):
+  if (isValidAuth) {
+    failedAttempts.delete(clientIP);
+  }
 
+  // Helper function for 401 response for API endpoints without incrementing brute-force counter
+  const sendUnauthorized = () => {
     res.writeHead(401, { 'Content-Type': 'application/json' });
-    const count = attemptData.count || 1;
-    const remaining = Math.max(0, LOCKOUT_THRESHOLD - count);
-    const msg = remaining > 0 
-      ? `❌ Invalid Password or Key! Failed attempt ${count}/${LOCKOUT_THRESHOLD} (${remaining} attempts remaining).` 
-      : `🚫 Too many failed attempts! IP locked out for 90 minutes.`;
-    return res.end(JSON.stringify({ error: msg }));
+    return res.end(JSON.stringify({ error: 'Unauthorized session. Please log in.' }));
   };
 
   // 3. API Stats Endpoint (/api/admin/stats)
