@@ -548,7 +548,7 @@ function getDashboardHTML() {
 
   <!-- Authentication Screen -->
   <div id="auth-screen">
-    <div class="auth-card">
+    <div class="auth-card" style="max-width: 520px; width: 100%;">
       <div class="auth-header">
         <div class="auth-icon">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -557,17 +557,26 @@ function getDashboardHTML() {
             <path d="M12 7v4" />
           </svg>
         </div>
-        <h1 class="auth-title">Enterprise Console Auth</h1>
-        <p class="auth-subtitle">Public/Private Key Cryptographic Authentication</p>
+        <h1 class="auth-title">Cryptographic PKI Console Auth</h1>
+        <p class="auth-subtitle">Asymmetric RSA-2048 Nonce Challenge & Signature Authentication</p>
       </div>
 
       <div class="auth-form-group">
-        <label class="auth-label">Public/Private Key Signature or Secret Key</label>
-        <input type="password" id="auth-key-input" class="auth-input" placeholder="Enter Admin Secret / Key Signature..." />
+        <label class="auth-label">RSA Private Key (PEM Format)</label>
+        <textarea id="auth-key-input" class="auth-input" style="height: 110px; font-family: monospace; font-size: 11px; resize: vertical;" placeholder="Paste -----BEGIN PRIVATE KEY----- here..."></textarea>
       </div>
 
-      <button id="auth-submit-btn" class="auth-btn">Authenticate Session</button>
-      <div id="auth-error-msg" class="auth-status">❌ Invalid Cryptographic Signature or Key</div>
+      <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+        <button id="auth-submit-btn" class="auth-btn" style="flex: 1;">🔐 Sign Nonce & Authenticate</button>
+        <button id="gen-key-btn" class="auth-btn" style="background: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary); width: auto;">🔑 Generate Keypair</button>
+      </div>
+
+      <div id="pubkey-display-box" style="display: none; background: var(--bg-card); padding: 10px; border-radius: 6px; border: 1px solid var(--border-active); margin-top: 10px;">
+        <label style="font-size: 11px; color: var(--accent-blue); display: block; margin-bottom: 4px; font-weight: 600;">Copy this Public Key to Render (ADMIN_PUBLIC_KEY):</label>
+        <textarea id="pubkey-output" style="width: 100%; height: 80px; background: var(--bg-surface); color: var(--accent-green); border: 1px solid var(--border-color); border-radius: 4px; font-family: monospace; font-size: 10px; padding: 6px;" readonly></textarea>
+      </div>
+
+      <div id="auth-error-msg" class="auth-status" style="display: none; margin-top: 10px;">❌ Invalid Cryptographic Signature</div>
     </div>
   </div>
 
@@ -716,23 +725,88 @@ function getDashboardHTML() {
     const authErrorMsg = document.getElementById('auth-error-msg');
     const logoutBtn = document.getElementById('logout-btn');
 
-    // Auto-check URL secret key parameter ?key=xxx
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('key')) {
-      sessionToken = urlParams.get('key');
-      localStorage.setItem('tg_admin_token', sessionToken);
-    }
-
+    // Auto-check session token
     if (sessionToken) {
       verifyAndLoadConsole();
     }
 
-    authSubmitBtn.addEventListener('click', () => {
-      const keyVal = authKeyInput.value.trim();
-      if (!keyVal) return;
-      sessionToken = keyVal;
-      verifyAndLoadConsole();
+    authSubmitBtn.addEventListener('click', async () => {
+      const privateKeyPem = authKeyInput.value.trim();
+      if (!privateKeyPem) return alert('Please enter or generate an RSA Private Key');
+      await authenticateWithPrivateKey(privateKeyPem);
     });
+
+    document.getElementById('gen-key-btn').addEventListener('click', async () => {
+      try {
+        const keyPair = await window.crypto.subtle.generateKey(
+          { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+          true,
+          ["sign", "verify"]
+        );
+        const exportedPriv = await window.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+        const exportedPub = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
+
+        const formatPem = (b64, type) => \`-----BEGIN \${type}-----\\n\${b64.match(/.{1,64}/g).join('\\n')}\\n-----END \${type}-----\`;
+        const privPem = formatPem(btoa(String.fromCharCode(...new Uint8Array(exportedPriv))), "PRIVATE KEY");
+        const pubPem = formatPem(btoa(String.fromCharCode(...new Uint8Array(exportedPub))), "PUBLIC KEY");
+
+        authKeyInput.value = privPem;
+        document.getElementById('pubkey-output').value = pubPem;
+        document.getElementById('pubkey-display-box').style.display = 'block';
+        window.lastGeneratedPubKey = pubPem;
+
+        alert('✨ RSA-2048 Keypair generated! Click "Sign Nonce & Authenticate" to sign in.');
+      } catch (err) {
+        alert('Failed to generate key pair: ' + err.message);
+      }
+    });
+
+    async function authenticateWithPrivateKey(privateKeyPem) {
+      authErrorMsg.style.display = 'none';
+      try {
+        const challengeRes = await fetch('/api/admin/auth/challenge');
+        const { nonce } = await challengeRes.json();
+
+        const b64 = privateKeyPem.replace(/-----BEGIN [A-Z ]+-----/g, '').replace(/-----END [A-Z ]+-----/g, '').replace(/\s+/g, '');
+        const der = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+
+        const importedKey = await window.crypto.subtle.importKey(
+          "pkcs8",
+          der,
+          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+          false,
+          ["sign"]
+        );
+
+        const encoder = new TextEncoder();
+        const signatureBuf = await window.crypto.subtle.sign(
+          "RSASSA-PKCS1-v1_5",
+          importedKey,
+          encoder.encode(nonce)
+        );
+
+        const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signatureBuf)));
+
+        const verifyRes = await fetch('/api/admin/auth/verify_signature', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nonce, signature: signatureBase64, publicKey: window.lastGeneratedPubKey || undefined })
+        });
+
+        const verifyData = await verifyRes.json();
+        if (verifyRes.ok && verifyData.token) {
+          sessionToken = verifyData.token;
+          localStorage.setItem('tg_admin_token', sessionToken);
+          verifyAndLoadConsole();
+        } else {
+          authErrorMsg.innerText = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
+          authErrorMsg.style.display = 'block';
+        }
+      } catch (err) {
+        authErrorMsg.innerText = '❌ Key Error: ' + err.message;
+        authErrorMsg.style.display = 'block';
+      }
+    }
 
     logoutBtn.addEventListener('click', () => {
       localStorage.removeItem('tg_admin_token');
@@ -937,18 +1011,12 @@ async function handleHTTPRequests(req, res, context) {
     return res.end(JSON.stringify({ error: `🚫 Too many failed login attempts! IP locked out for ${remainingSecs}s.` }));
   }
 
-  // Helper Auth Verification - STRICT (No default fallback + Constant-Time Security)
+  // Helper Auth Verification - STRICT CRYPTOGRAPHIC PKI ONLY (Active signed sessions only)
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace('Bearer ', '').trim() || query.key || '';
 
-  const adminPass = process.env.ADMIN_PASSWORD || process.env.ADMIN_KEY || '';
-  const adminId = process.env.ADMIN_ID ? String(process.env.ADMIN_ID) : '';
-
-  const isSessionValid = token && activeSessions.has(token);
-  const isPassValid = token && adminPass && safeCompare(token, adminPass);
-  const isIdValid = token && adminId && safeCompare(token, adminId);
-
-  const isValidAuth = isSessionValid || isPassValid || isIdValid;
+  // ONLY tokens generated via valid RSA/Ed25519 Public/Private Key Signature Verification are valid!
+  const isValidAuth = Boolean(token && activeSessions.has(token));
 
   if (token && !isValidAuth) {
     // Record failed attempt
