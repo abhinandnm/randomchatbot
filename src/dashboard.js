@@ -563,10 +563,10 @@ function getDashboardHTML() {
 
       <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
         <!-- Option 1: Upload Existing PEM -->
-        <button id="upload-pem-btn" class="auth-btn" style="background: var(--accent-blue); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <button id="upload-pem-btn" type="button" onclick="document.getElementById('key-file-input').click()" class="auth-btn" style="background: var(--accent-blue); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
           📁 Upload Private Key (.pem file)
         </button>
-        <input type="file" id="key-file-input" style="display: none;" accept=".pem,.key,.txt,id_rsa">
+        <input type="file" id="key-file-input" style="display: none;" accept=".pem,.key,.txt,*">
 
         <div style="display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; margin: 4px 0;">
           <div style="flex: 1; border-bottom: 1px solid var(--border-color);"></div>
@@ -575,7 +575,7 @@ function getDashboardHTML() {
         </div>
 
         <!-- Option 2: Generate & Auto-Download New Keypair -->
-        <button id="gen-key-btn" class="auth-btn" style="background: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <button id="gen-key-btn" type="button" class="auth-btn" style="background: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
           🔑 Generate & Auto-Download New Keypair (.pem)
         </button>
       </div>
@@ -745,7 +745,11 @@ function getDashboardHTML() {
     const uploadPemBtn = document.getElementById('upload-pem-btn');
     const keyFileInput = document.getElementById('key-file-input');
 
-    uploadPemBtn.addEventListener('click', () => keyFileInput.click());
+    uploadPemBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      keyFileInput.value = '';
+      keyFileInput.click();
+    });
 
     keyFileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -876,10 +880,12 @@ function getDashboardHTML() {
           localStorage.setItem('tg_admin_privkey', privateKeyPem);
           verifyAndLoadConsole();
         } else {
+          localStorage.removeItem('tg_admin_privkey');
           authErrorMsg.innerText = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
           authErrorMsg.style.display = 'block';
         }
       } catch (err) {
+        localStorage.removeItem('tg_admin_privkey');
         authErrorMsg.innerText = '❌ Key Error: ' + err.message;
         authErrorMsg.style.display = 'block';
       }
