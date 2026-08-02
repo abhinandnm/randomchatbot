@@ -585,6 +585,14 @@ function getDashboardHTML() {
         <textarea id="pubkey-output" style="width: 100%; height: 80px; background: var(--bg-surface); color: var(--accent-green); border: 1px solid var(--border-color); border-radius: 4px; font-family: monospace; font-size: 10px; padding: 6px;" readonly></textarea>
       </div>
 
+      <!-- Real-Time Cryptographic Auth Progress Status Box -->
+      <div id="auth-progress-box" style="display: none; background: var(--bg-card); border: 1px solid var(--border-active); padding: 12px; border-radius: 6px; margin-top: 14px; text-align: left;">
+        <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; color: var(--accent-blue);">
+          <span id="auth-progress-title">🔄 Processing Key File...</span>
+        </div>
+        <div id="auth-progress-desc" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-family: monospace;"></div>
+      </div>
+
       <div id="auth-error-msg" class="auth-status" style="display: none; margin-top: 14px;">❌ Invalid Cryptographic Signature</div>
     </div>
   </div>
@@ -751,18 +759,18 @@ function getDashboardHTML() {
     keyFileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      alert('📄 File selected: "' + file.name + '". Processing cryptographic authentication...');
+      showAuthProgress('📁 PEM File Uploaded', \`File: "\${file.name}" (\${file.size} bytes)\`);
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
           const privKeyPem = event.target.result.trim();
-          await authenticateWithPrivateKey(privKeyPem);
+          await authenticateWithPrivateKey(privKeyPem, file.name);
         } catch (err) {
-          alert('❌ Key Read Error: ' + err.message);
+          showAuthProgress('❌ Key Read Error', err.message, true);
         }
       };
       reader.onerror = () => {
-        alert('❌ Failed to read selected file!');
+        showAuthProgress('❌ File Error', 'Failed to read selected file', true);
       };
       reader.readAsText(file);
     });
@@ -880,13 +888,31 @@ function getDashboardHTML() {
       }
     }
 
-    async function authenticateWithPrivateKey(privateKeyPem) {
+    function showAuthProgress(title, desc, isError = false) {
+      const box = document.getElementById('auth-progress-box');
+      const titleEl = document.getElementById('auth-progress-title');
+      const descEl = document.getElementById('auth-progress-desc');
+      if (box && titleEl && descEl) {
+        box.style.display = 'block';
+        titleEl.innerText = title;
+        titleEl.style.color = isError ? 'var(--accent-red)' : 'var(--accent-blue)';
+        descEl.innerText = desc;
+      }
+    }
+
+    async function authenticateWithPrivateKey(privateKeyPem, filename = 'Key File') {
       authErrorMsg.style.display = 'none';
+      showAuthProgress('📁 Key Received by Client Engine', \`Source: \${filename} (\${privateKeyPem.length} chars)\`);
+
       try {
+        showAuthProgress('⚡ Requesting Server Challenge Nonce...', 'Connecting to /api/admin/auth/challenge...');
         const challengeRes = await fetch('/api/admin/auth/challenge');
         const { nonce } = await challengeRes.json();
 
+        showAuthProgress('🔐 Importing & Parsing RSA Private Key...', 'Constructing PKCS#8 DER structure...');
         const importedKey = await importAnyRSAPrivateKey(privateKeyPem);
+
+        showAuthProgress('🔑 Deriving Public Key Fingerprint...', 'Generating matching RSA SPKI public key...');
         const derivedPubKey = await derivePublicKey(importedKey);
 
         if (derivedPubKey) {
@@ -894,6 +920,7 @@ function getDashboardHTML() {
           document.getElementById('pubkey-display-box').style.display = 'block';
         }
 
+        showAuthProgress('✍️ Signing Challenge Nonce...', 'WebCrypto RSASSA-PKCS1-v1_5 SHA-256 signature...');
         const encoder = new TextEncoder();
         const signatureBuf = await window.crypto.subtle.sign(
           "RSASSA-PKCS1-v1_5",
@@ -903,6 +930,7 @@ function getDashboardHTML() {
 
         const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signatureBuf)));
 
+        showAuthProgress('🌐 Transmitting Signature to Render Server...', 'POST /api/admin/auth/verify_signature...');
         const verifyRes = await fetch('/api/admin/auth/verify_signature', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -911,29 +939,32 @@ function getDashboardHTML() {
 
         const verifyData = await verifyRes.json();
         if (verifyRes.ok && verifyData.token) {
+          showAuthProgress('✅ VERIFIED & AUTHENTICATED!', 'Cryptographic Session Token Issued. Opening Console...');
           sessionToken = verifyData.token;
           localStorage.setItem('tg_admin_token', sessionToken);
           localStorage.setItem('tg_admin_privkey', privateKeyPem);
-          authScreen.style.display = 'none';
-          consoleLayout.style.display = 'flex';
-          fetchStats();
-          fetchLogs();
-          setInterval(fetchStats, 3000);
-          setInterval(fetchLogs, 2000);
-          alert('✅ Cryptographic PKI Login Successful! Welcome to Admin Console.');
+          
+          setTimeout(() => {
+            authScreen.style.display = 'none';
+            consoleLayout.style.display = 'flex';
+            fetchStats();
+            fetchLogs();
+            setInterval(fetchStats, 3000);
+            setInterval(fetchLogs, 2000);
+          }, 600);
         } else {
           localStorage.removeItem('tg_admin_privkey');
           const errMsg = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
+          showAuthProgress('❌ SERVER REJECTED SIGNATURE', verifyData.error || 'Invalid signature. Make sure ADMIN_PUBLIC_KEY is set in Render.', true);
           authErrorMsg.innerText = errMsg;
           authErrorMsg.style.display = 'block';
-          alert(errMsg);
         }
       } catch (err) {
         localStorage.removeItem('tg_admin_privkey');
         const errMsg = '❌ Key Error: ' + err.message;
+        showAuthProgress('❌ CLIENT KEY ERROR', err.message, true);
         authErrorMsg.innerText = errMsg;
         authErrorMsg.style.display = 'block';
-        alert(errMsg);
       }
     }
 
