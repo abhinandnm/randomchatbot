@@ -815,7 +815,7 @@ function getDashboardHTML() {
     async function derivePublicKey(importedPrivKey) {
       try {
         const jwk = await window.crypto.subtle.exportKey("jwk", importedPrivKey);
-        const pubJwk = { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: "RS256", ext: true };
+        const pubJwk = { kty: "RSA", n: jwk.n, e: jwk.e, ext: true };
         const pubKey = await window.crypto.subtle.importKey(
           "jwk",
           pubJwk,
@@ -827,6 +827,7 @@ function getDashboardHTML() {
         const b64 = btoa(String.fromCharCode(...new Uint8Array(spki)));
         return \`-----BEGIN PUBLIC KEY-----\\n\${b64.match(/.{1,64}/g).join('\\n')}\\n-----END PUBLIC KEY-----\`;
       } catch (err) {
+        console.error('derivePublicKey error:', err);
         return null;
       }
     }
@@ -952,6 +953,11 @@ function getDashboardHTML() {
           setInterval(fetchStats, 3000);
           setInterval(fetchLogs, 2000);
         } else {
+          localStorage.removeItem('tg_admin_token');
+          sessionToken = '';
+          authScreen.style.display = 'flex';
+          consoleLayout.style.display = 'none';
+          authErrorMsg.innerText = '⚠️ Session expired. Please upload your .pem key file to log in.';
           authErrorMsg.style.display = 'block';
         }
       } catch (err) {
