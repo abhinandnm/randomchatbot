@@ -807,6 +807,25 @@ function getDashboardHTML() {
     setInterval(updateISTClock, 1000);
     updateISTClock();
 
+    async function derivePublicKey(importedPrivKey) {
+      try {
+        const jwk = await window.crypto.subtle.exportKey("jwk", importedPrivKey);
+        const pubJwk = { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: "RS256", ext: true };
+        const pubKey = await window.crypto.subtle.importKey(
+          "jwk",
+          pubJwk,
+          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+          true,
+          ["verify"]
+        );
+        const spki = await window.crypto.subtle.exportKey("spki", pubKey);
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(spki)));
+        return \`-----BEGIN PUBLIC KEY-----\\n\${b64.match(/.{1,64}/g).join('\\n')}\\n-----END PUBLIC KEY-----\`;
+      } catch (err) {
+        return null;
+      }
+    }
+
     async function importAnyRSAPrivateKey(pemText) {
       let b64 = pemText
         .replace(/-----BEGIN[^-]+-----/g, '')
@@ -825,7 +844,7 @@ function getDashboardHTML() {
           "pkcs8",
           der,
           { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-          false,
+          true,
           ["sign"]
         );
       } catch (err) {
@@ -844,7 +863,7 @@ function getDashboardHTML() {
           "pkcs8",
           pkcs8Der.buffer,
           { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-          false,
+          true,
           ["sign"]
         );
       }
@@ -857,6 +876,12 @@ function getDashboardHTML() {
         const { nonce } = await challengeRes.json();
 
         const importedKey = await importAnyRSAPrivateKey(privateKeyPem);
+        const derivedPubKey = await derivePublicKey(importedKey);
+
+        if (derivedPubKey) {
+          document.getElementById('pubkey-output').value = derivedPubKey;
+          document.getElementById('pubkey-display-box').style.display = 'block';
+        }
 
         const encoder = new TextEncoder();
         const signatureBuf = await window.crypto.subtle.sign(
@@ -870,7 +895,7 @@ function getDashboardHTML() {
         const verifyRes = await fetch('/api/admin/auth/verify_signature', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nonce, signature: signatureBase64, publicKey: window.lastGeneratedPubKey || undefined })
+          body: JSON.stringify({ nonce, signature: signatureBase64, publicKey: derivedPubKey || window.lastGeneratedPubKey || undefined })
         });
 
         const verifyData = await verifyRes.json();
@@ -881,13 +906,17 @@ function getDashboardHTML() {
           verifyAndLoadConsole();
         } else {
           localStorage.removeItem('tg_admin_privkey');
-          authErrorMsg.innerText = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
+          const errMsg = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
+          authErrorMsg.innerText = errMsg;
           authErrorMsg.style.display = 'block';
+          alert(errMsg);
         }
       } catch (err) {
         localStorage.removeItem('tg_admin_privkey');
-        authErrorMsg.innerText = '❌ Key Error: ' + err.message;
+        const errMsg = '❌ Key Error: ' + err.message;
+        authErrorMsg.innerText = errMsg;
         authErrorMsg.style.display = 'block';
+        alert(errMsg);
       }
     }
 
