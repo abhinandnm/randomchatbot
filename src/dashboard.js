@@ -562,13 +562,20 @@ function getDashboardHTML() {
       </div>
 
       <div class="auth-form-group">
-        <label class="auth-label">RSA Private Key (PEM Format)</label>
-        <textarea id="auth-key-input" class="auth-input" style="height: 110px; font-family: monospace; font-size: 11px; resize: vertical;" placeholder="Paste -----BEGIN PRIVATE KEY----- here..."></textarea>
+        <label class="auth-label">RSA Private Key (PEM / id_rsa)</label>
+        <textarea id="auth-key-input" class="auth-input" style="height: 110px; font-family: monospace; font-size: 11px; resize: vertical;" placeholder="Paste -----BEGIN PRIVATE KEY----- or upload key file..."></textarea>
       </div>
 
-      <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+      <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
         <button id="auth-submit-btn" class="auth-btn" style="flex: 1;">🔐 Sign Nonce & Authenticate</button>
-        <button id="gen-key-btn" class="auth-btn" style="background: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary); width: auto;">🔑 Generate Keypair</button>
+        <button id="upload-file-btn" class="auth-btn" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--accent-blue); width: auto;">📁 Load Key File</button>
+        <button id="gen-key-btn" class="auth-btn" style="background: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary); width: auto;">🔑 New Keypair</button>
+        <input type="file" id="key-file-input" style="display: none;" accept=".pem,.key,.txt,id_rsa">
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+        <input type="checkbox" id="save-device-key" checked style="cursor: pointer;">
+        <label for="save-device-key" style="font-size: 11px; color: var(--text-secondary); cursor: pointer;">Save key on this device for SSH-style automatic login</label>
       </div>
 
       <div id="pubkey-display-box" style="display: none; background: var(--bg-card); padding: 10px; border-radius: 6px; border: 1px solid var(--border-active); margin-top: 10px;">
@@ -725,14 +732,36 @@ function getDashboardHTML() {
     const authErrorMsg = document.getElementById('auth-error-msg');
     const logoutBtn = document.getElementById('logout-btn');
 
-    // Auto-check session token
+    let devicePrivKey = localStorage.getItem('tg_admin_privkey') || '';
+
+    // Auto-login from saved session token or device private key (Linux SSH-Style)
     if (sessionToken) {
       verifyAndLoadConsole();
+    } else if (devicePrivKey) {
+      authKeyInput.value = devicePrivKey;
+      authenticateWithPrivateKey(devicePrivKey);
     }
+
+    // Load key from local computer file system
+    const uploadFileBtn = document.getElementById('upload-file-btn');
+    const keyFileInput = document.getElementById('key-file-input');
+
+    uploadFileBtn.addEventListener('click', () => keyFileInput.click());
+
+    keyFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        authKeyInput.value = event.target.result.trim();
+        alert('📄 Key file loaded: ' + file.name);
+      };
+      reader.readAsText(file);
+    });
 
     authSubmitBtn.addEventListener('click', async () => {
       const privateKeyPem = authKeyInput.value.trim();
-      if (!privateKeyPem) return alert('Please enter or generate an RSA Private Key');
+      if (!privateKeyPem) return alert('Please enter, upload, or generate an RSA Private Key');
       await authenticateWithPrivateKey(privateKeyPem);
     });
 
@@ -797,6 +826,11 @@ function getDashboardHTML() {
         if (verifyRes.ok && verifyData.token) {
           sessionToken = verifyData.token;
           localStorage.setItem('tg_admin_token', sessionToken);
+
+          if (document.getElementById('save-device-key').checked) {
+            localStorage.setItem('tg_admin_privkey', privateKeyPem);
+          }
+
           verifyAndLoadConsole();
         } else {
           authErrorMsg.innerText = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
@@ -810,7 +844,9 @@ function getDashboardHTML() {
 
     logoutBtn.addEventListener('click', () => {
       localStorage.removeItem('tg_admin_token');
+      localStorage.removeItem('tg_admin_privkey');
       sessionToken = '';
+      authKeyInput.value = '';
       consoleLayout.style.display = 'none';
       authScreen.style.display = 'flex';
     });
