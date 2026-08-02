@@ -962,16 +962,6 @@ async function handleHTTPRequests(req, res, context) {
     return;
   }
 
-  // Anti-Brute-Force Lockout Check
-  const clientIP = getClientIP(req);
-  const attemptData = failedAttempts.get(clientIP) || { count: 0, lockUntil: 0 };
-
-  if (Date.now() < attemptData.lockUntil) {
-    const remainingMins = Math.ceil((attemptData.lockUntil - Date.now()) / (60 * 1000));
-    res.writeHead(429, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: `🚫 IP LOCKED OUT! Too many failed attempts (5/5). Try again in ${remainingMins} minutes.` }));
-  }
-
   // Helper Auth Verification - Constant-Time Security
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace('Bearer ', '').trim() || query.key || '';
@@ -985,8 +975,28 @@ async function handleHTTPRequests(req, res, context) {
 
   const isValidAuth = isSessionValid || isPassValid || isIdValid;
 
-  if (token && !isValidAuth) {
-    // Record failed attempt
+  const clientIP = getClientIP(req);
+  const attemptData = failedAttempts.get(clientIP) || { count: 0, lockUntil: 0 };
+
+  // Emergency lockout reset via ?reset=1 URL parameter
+  if (query.reset === '1' || query.unlock === '1') {
+    failedAttempts.delete(clientIP);
+  }
+
+  // IF AUTHENTICATION IS VALID (Correct Password/Token):
+  if (isValidAuth) {
+    // Always unlock and clear failed attempt history on correct password
+    failedAttempts.delete(clientIP);
+  } else if (token) {
+    // ONLY IF WRONG PASSWORD WAS ENTERED:
+    // Check if IP is currently locked out from 5 failed wrong attempts
+    if (Date.now() < attemptData.lockUntil) {
+      const remainingMins = Math.ceil((attemptData.lockUntil - Date.now()) / (60 * 1000));
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: `🚫 IP LOCKED OUT! Too many failed attempts (5/5). Try again in ${remainingMins} minutes.` }));
+    }
+
+    // Record failed attempt for WRONG password
     attemptData.count = (attemptData.count || 0) + 1;
     addLiveLog('report', `Failed admin authentication attempt from IP: ${clientIP} (Attempt ${attemptData.count}/${LOCKOUT_THRESHOLD})`);
 
@@ -996,16 +1006,19 @@ async function handleHTTPRequests(req, res, context) {
     }
 
     failedAttempts.set(clientIP, attemptData);
-  } else if (isValidAuth) {
-    // Clear failed attempts on successful login
-    failedAttempts.delete(clientIP);
   }
 
   // Helper function for 401 response with attempt counter
   const sendUnauthorized = () => {
+    if (Date.now() < attemptData.lockUntil) {
+      const remainingMins = Math.ceil((attemptData.lockUntil - Date.now()) / (60 * 1000));
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: `🚫 IP LOCKED OUT! Too many failed attempts (5/5). Try again in ${remainingMins} minutes.` }));
+    }
+
     res.writeHead(401, { 'Content-Type': 'application/json' });
     const count = attemptData.count || 1;
-    const remaining = LOCKOUT_THRESHOLD - count;
+    const remaining = Math.max(0, LOCKOUT_THRESHOLD - count);
     const msg = remaining > 0 
       ? `❌ Invalid Password or Key! Failed attempt ${count}/${LOCKOUT_THRESHOLD} (${remaining} attempts remaining).` 
       : `🚫 Too many failed attempts! IP locked out for 90 minutes.`;
