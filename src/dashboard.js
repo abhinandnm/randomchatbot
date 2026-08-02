@@ -548,42 +548,44 @@ function getDashboardHTML() {
 
   <!-- Authentication Screen -->
   <div id="auth-screen">
-    <div class="auth-card" style="max-width: 520px; width: 100%;">
-      <div class="auth-header">
-        <div class="auth-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <div class="auth-card" style="max-width: 480px; width: 100%;">
+      <div class="auth-header" style="text-align: center;">
+        <div class="auth-icon" style="margin: 0 auto 12px auto;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 2l-2 2m-2-2l2 2m7 0a9 9 0 11-18 0 9 9 0 0118 0z" />
             <rect x="7" y="11" width="10" height="8" rx="2" />
             <path d="M12 7v4" />
           </svg>
         </div>
-        <h1 class="auth-title">Cryptographic PKI Console Auth</h1>
-        <p class="auth-subtitle">Asymmetric RSA-2048 Nonce Challenge & Signature Authentication</p>
+        <h1 class="auth-title">Cryptographic PKI Admin Console</h1>
+        <p class="auth-subtitle">Asymmetric RSA-2048 Signature Authentication</p>
       </div>
 
-      <div class="auth-form-group">
-        <label class="auth-label">RSA Private Key (PEM / id_rsa)</label>
-        <textarea id="auth-key-input" class="auth-input" style="height: 110px; font-family: monospace; font-size: 11px; resize: vertical;" placeholder="Paste -----BEGIN PRIVATE KEY----- or upload key file..."></textarea>
-      </div>
-
-      <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
-        <button id="auth-submit-btn" class="auth-btn" style="flex: 1;">🔐 Sign Nonce & Authenticate</button>
-        <button id="upload-file-btn" class="auth-btn" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--accent-blue); width: auto;">📁 Load Key File</button>
-        <button id="gen-key-btn" class="auth-btn" style="background: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary); width: auto;">🔑 New Keypair</button>
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
+        <!-- Option 1: Upload Existing PEM -->
+        <button id="upload-pem-btn" class="auth-btn" style="background: var(--accent-blue); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          📁 Upload Private Key (.pem file)
+        </button>
         <input type="file" id="key-file-input" style="display: none;" accept=".pem,.key,.txt,id_rsa">
+
+        <div style="display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; margin: 4px 0;">
+          <div style="flex: 1; border-bottom: 1px solid var(--border-color);"></div>
+          <span>OR</span>
+          <div style="flex: 1; border-bottom: 1px solid var(--border-color);"></div>
+        </div>
+
+        <!-- Option 2: Generate & Auto-Download New Keypair -->
+        <button id="gen-key-btn" class="auth-btn" style="background: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          🔑 Generate & Auto-Download New Keypair (.pem)
+        </button>
       </div>
 
-      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
-        <input type="checkbox" id="save-device-key" checked style="cursor: pointer;">
-        <label for="save-device-key" style="font-size: 11px; color: var(--text-secondary); cursor: pointer;">Save key on this device for SSH-style automatic login</label>
-      </div>
-
-      <div id="pubkey-display-box" style="display: none; background: var(--bg-card); padding: 10px; border-radius: 6px; border: 1px solid var(--border-active); margin-top: 10px;">
-        <label style="font-size: 11px; color: var(--accent-blue); display: block; margin-bottom: 4px; font-weight: 600;">Copy this Public Key to Render (ADMIN_PUBLIC_KEY):</label>
+      <div id="pubkey-display-box" style="display: none; background: var(--bg-card); padding: 12px; border-radius: 6px; border: 1px solid var(--border-active); margin-top: 16px; text-align: left;">
+        <label style="font-size: 11px; color: var(--accent-blue); display: block; margin-bottom: 6px; font-weight: 600;">Copy this Public Key to Render Environment (ADMIN_PUBLIC_KEY):</label>
         <textarea id="pubkey-output" style="width: 100%; height: 80px; background: var(--bg-surface); color: var(--accent-green); border: 1px solid var(--border-color); border-radius: 4px; font-family: monospace; font-size: 10px; padding: 6px;" readonly></textarea>
       </div>
 
-      <div id="auth-error-msg" class="auth-status" style="display: none; margin-top: 10px;">❌ Invalid Cryptographic Signature</div>
+      <div id="auth-error-msg" class="auth-status" style="display: none; margin-top: 14px;">❌ Invalid Cryptographic Signature</div>
     </div>
   </div>
 
@@ -724,47 +726,38 @@ function getDashboardHTML() {
 
   <script>
     let sessionToken = localStorage.getItem('tg_admin_token') || '';
-
     const authScreen = document.getElementById('auth-screen');
     const consoleLayout = document.getElementById('console-layout');
-    const authKeyInput = document.getElementById('auth-key-input');
-    const authSubmitBtn = document.getElementById('auth-submit-btn');
     const authErrorMsg = document.getElementById('auth-error-msg');
     const logoutBtn = document.getElementById('logout-btn');
 
     let devicePrivKey = localStorage.getItem('tg_admin_privkey') || '';
 
-    // Auto-login from saved session token or device private key (Linux SSH-Style)
+    // Auto-login if session token or saved device key exists
     if (sessionToken) {
       verifyAndLoadConsole();
     } else if (devicePrivKey) {
-      authKeyInput.value = devicePrivKey;
       authenticateWithPrivateKey(devicePrivKey);
     }
 
-    // Load key from local computer file system
-    const uploadFileBtn = document.getElementById('upload-file-btn');
+    // 1. Option 1: Upload Private Key PEM File
+    const uploadPemBtn = document.getElementById('upload-pem-btn');
     const keyFileInput = document.getElementById('key-file-input');
 
-    uploadFileBtn.addEventListener('click', () => keyFileInput.click());
+    uploadPemBtn.addEventListener('click', () => keyFileInput.click());
 
     keyFileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = (event) => {
-        authKeyInput.value = event.target.result.trim();
-        alert('📄 Key file loaded: ' + file.name);
+      reader.onload = async (event) => {
+        const privKeyPem = event.target.result.trim();
+        await authenticateWithPrivateKey(privKeyPem);
       };
       reader.readAsText(file);
     });
 
-    authSubmitBtn.addEventListener('click', async () => {
-      const privateKeyPem = authKeyInput.value.trim();
-      if (!privateKeyPem) return alert('Please enter, upload, or generate an RSA Private Key');
-      await authenticateWithPrivateKey(privateKeyPem);
-    });
-
+    // 2. Option 2: Generate & Auto-Download New Keypair
     document.getElementById('gen-key-btn').addEventListener('click', async () => {
       try {
         const keyPair = await window.crypto.subtle.generateKey(
@@ -779,12 +772,22 @@ function getDashboardHTML() {
         const privPem = formatPem(btoa(String.fromCharCode(...new Uint8Array(exportedPriv))), "PRIVATE KEY");
         const pubPem = formatPem(btoa(String.fromCharCode(...new Uint8Array(exportedPub))), "PUBLIC KEY");
 
-        authKeyInput.value = privPem;
+        // Automatically download admin_private_key.pem to user's computer
+        const blob = new Blob([privPem], { type: 'application/x-pem-file' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'admin_private_key.pem';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        // Display Public Key for Render Environment
         document.getElementById('pubkey-output').value = pubPem;
         document.getElementById('pubkey-display-box').style.display = 'block';
         window.lastGeneratedPubKey = pubPem;
 
-        alert('✨ RSA-2048 Keypair generated! Click "Sign Nonce & Authenticate" to sign in.');
+        // Auto authenticate with the newly generated private key
+        await authenticateWithPrivateKey(privPem);
       } catch (err) {
         alert('Failed to generate key pair: ' + err.message);
       }
@@ -826,11 +829,7 @@ function getDashboardHTML() {
         if (verifyRes.ok && verifyData.token) {
           sessionToken = verifyData.token;
           localStorage.setItem('tg_admin_token', sessionToken);
-
-          if (document.getElementById('save-device-key').checked) {
-            localStorage.setItem('tg_admin_privkey', privateKeyPem);
-          }
-
+          localStorage.setItem('tg_admin_privkey', privateKeyPem);
           verifyAndLoadConsole();
         } else {
           authErrorMsg.innerText = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
@@ -846,7 +845,6 @@ function getDashboardHTML() {
       localStorage.removeItem('tg_admin_token');
       localStorage.removeItem('tg_admin_privkey');
       sessionToken = '';
-      authKeyInput.value = '';
       consoleLayout.style.display = 'none';
       authScreen.style.display = 'flex';
     });
