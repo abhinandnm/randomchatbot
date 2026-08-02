@@ -562,11 +562,11 @@ function getDashboardHTML() {
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
-        <!-- Option 1: Upload Existing PEM (Native Label trigger) -->
+        <!-- Option 1: Upload Existing PEM (Nested Native Label) -->
         <label for="key-file-input" class="auth-btn" style="background: var(--accent-blue); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; user-select: none;">
           📁 Upload Private Key (.pem file)
+          <input type="file" id="key-file-input" style="display: none;" accept=".pem,.key,.txt,*">
         </label>
-        <input type="file" id="key-file-input" style="position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none;" accept=".pem,.key,.txt,*">
 
         <div style="display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; margin: 4px 0;">
           <div style="flex: 1; border-bottom: 1px solid var(--border-color);"></div>
@@ -831,16 +831,21 @@ function getDashboardHTML() {
       }
     }
 
-    async function importAnyRSAPrivateKey(pemText) {
-      let b64 = pemText
-        .replace(/-----BEGIN[^-]+-----/g, '')
-        .replace(/-----END[^-]+-----/g, '')
-        .replace(/[\r\n\s\t]+/g, '');
-
+    function extractBase64FromPem(pemText) {
+      const lines = pemText.split(/\r?\n/);
+      const base64Lines = lines.filter(line => {
+        const trimmed = line.trim();
+        return trimmed && !trimmed.startsWith('-----') && !trimmed.includes(':');
+      });
+      let b64 = base64Lines.join('').replace(/\s+/g, '');
       while (b64.length % 4 !== 0) {
         b64 += '=';
       }
+      return b64;
+    }
 
+    async function importAnyRSAPrivateKey(pemText) {
+      const b64 = extractBase64FromPem(pemText);
       const binaryStr = atob(b64);
       const der = Uint8Array.from(binaryStr, c => c.charCodeAt(0)).buffer;
 
