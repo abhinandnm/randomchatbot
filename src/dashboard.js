@@ -914,7 +914,13 @@ function getDashboardHTML() {
           sessionToken = verifyData.token;
           localStorage.setItem('tg_admin_token', sessionToken);
           localStorage.setItem('tg_admin_privkey', privateKeyPem);
-          verifyAndLoadConsole();
+          authScreen.style.display = 'none';
+          consoleLayout.style.display = 'flex';
+          fetchStats();
+          fetchLogs();
+          setInterval(fetchStats, 3000);
+          setInterval(fetchLogs, 2000);
+          alert('✅ Cryptographic PKI Login Successful! Welcome to Admin Console.');
         } else {
           localStorage.removeItem('tg_admin_privkey');
           const errMsg = '❌ Auth Failed: ' + (verifyData.error || 'Invalid signature');
@@ -1097,20 +1103,31 @@ async function handleHTTPRequests(req, res, context) {
           return res.end(JSON.stringify({ error: 'Invalid or expired cryptographic challenge nonce' }));
         }
 
-        activeNonces.delete(nonce);
-        const pubKeyPEM = process.env.ADMIN_PUBLIC_KEY || publicKey;
+        let pubKeyPEM = process.env.ADMIN_PUBLIC_KEY || publicKey;
+
+        if (typeof pubKeyPEM === 'string') {
+          pubKeyPEM = pubKeyPEM
+            .replace(/^["']|["']$/g, '')
+            .replace(/\\n/g, '\n')
+            .trim();
+        }
 
         if (!pubKeyPEM) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ error: 'No ADMIN_PUBLIC_KEY configured on server' }));
         }
 
-        const isVerified = crypto.verify(
-          'SHA256',
-          Buffer.from(nonce),
-          pubKeyPEM,
-          Buffer.from(signature, 'base64')
-        );
+        let isVerified = false;
+        try {
+          isVerified = crypto.verify(
+            'SHA256',
+            Buffer.from(nonce),
+            pubKeyPEM,
+            Buffer.from(signature, 'base64')
+          );
+        } catch (err) {
+          console.error('crypto.verify error:', err.message);
+        }
 
         if (isVerified) {
           const sessionToken = crypto.randomBytes(32).toString('hex');
