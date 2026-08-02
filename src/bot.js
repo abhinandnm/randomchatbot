@@ -496,7 +496,7 @@ function setupBotHandlers(bot) {
         `🚨 *LIVE REPORT ALERT!*\n\n` +
         `👤 *Reporter ID:* \`${userId}\`\n` +
         `🚫 *Reported User ID:* \`${partnerId}\`\n` +
-        `⏰ *Time:* ${new Date().toISOString()}\n\n` +
+        `⏰ *Time:* ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true })} (IST)\n\n` +
         `⚡ *Quick Admin Actions:*\n` +
         `• Perm Ban: \`/ban ${partnerId} Reported by user\`\n` +
         `• Restrict 24h: \`/restrict ${partnerId} 24 Abuse\`\n` +

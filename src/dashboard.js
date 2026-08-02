@@ -31,7 +31,7 @@ const MAX_LOGS = 200;
 function addLiveLog(type, message, details = {}) {
   const logEntry = {
     id: Date.now() + Math.random().toString(36).substring(2, 7),
-    timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+    timestamp: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true }) + ' IST',
     type, // 'chat', 'match', 'system', 'report', 'admin'
     message,
     details
@@ -604,7 +604,8 @@ function getDashboardHTML() {
       </div>
 
       <div class="header-actions">
-        <span class="key-badge">AUTH: RSA/ED25519 VERIFIED</span>
+        <span class="key-badge" id="ist-live-clock" style="background: var(--bg-card); color: var(--accent-amber); border: 1px solid var(--border-color); font-weight: 600;">🇮🇳 IST: Syncing...</span>
+        <span class="key-badge">AUTH: RSA PKI VERIFIED</span>
         <button id="logout-btn" class="btn-secondary">Disconnect Session</button>
       </div>
     </header>
@@ -793,22 +794,65 @@ function getDashboardHTML() {
       }
     });
 
-    async function authenticateWithPrivateKey(privateKeyPem) {
-      authErrorMsg.style.display = 'none';
+    function updateISTClock() {
+      const clockEl = document.getElementById('ist-live-clock');
+      if (clockEl) {
+        clockEl.innerText = '🇮🇳 IST: ' + new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true });
+      }
+    }
+    setInterval(updateISTClock, 1000);
+    updateISTClock();
+
+    async function importAnyRSAPrivateKey(pemText) {
+      let b64 = pemText
+        .replace(/-----BEGIN[^-]+-----/g, '')
+        .replace(/-----END[^-]+-----/g, '')
+        .replace(/[\r\n\s\t]+/g, '');
+
+      while (b64.length % 4 !== 0) {
+        b64 += '=';
+      }
+
+      const binaryStr = atob(b64);
+      const der = Uint8Array.from(binaryStr, c => c.charCodeAt(0)).buffer;
+
       try {
-        const challengeRes = await fetch('/api/admin/auth/challenge');
-        const { nonce } = await challengeRes.json();
-
-        const b64 = privateKeyPem.replace(/-----BEGIN [A-Z ]+-----/g, '').replace(/-----END [A-Z ]+-----/g, '').replace(/\s+/g, '');
-        const der = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
-
-        const importedKey = await window.crypto.subtle.importKey(
+        return await window.crypto.subtle.importKey(
           "pkcs8",
           der,
           { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
           false,
           ["sign"]
         );
+      } catch (err) {
+        const pkcs1Bytes = new Uint8Array(der);
+        const rsaOidHeader = new Uint8Array([
+          0x30, 0x82, (pkcs1Bytes.length + 22) >> 8, (pkcs1Bytes.length + 22) & 0xff,
+          0x02, 0x01, 0x00,
+          0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
+          0x04, 0x82, pkcs1Bytes.length >> 8, pkcs1Bytes.length & 0xff
+        ]);
+        const pkcs8Der = new Uint8Array(rsaOidHeader.length + pkcs1Bytes.length);
+        pkcs8Der.set(rsaOidHeader, 0);
+        pkcs8Der.set(pkcs1Bytes, rsaOidHeader.length);
+
+        return await window.crypto.subtle.importKey(
+          "pkcs8",
+          pkcs8Der.buffer,
+          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+          false,
+          ["sign"]
+        );
+      }
+    }
+
+    async function authenticateWithPrivateKey(privateKeyPem) {
+      authErrorMsg.style.display = 'none';
+      try {
+        const challengeRes = await fetch('/api/admin/auth/challenge');
+        const { nonce } = await challengeRes.json();
+
+        const importedKey = await importAnyRSAPrivateKey(privateKeyPem);
 
         const encoder = new TextEncoder();
         const signatureBuf = await window.crypto.subtle.sign(
