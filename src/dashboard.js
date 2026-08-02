@@ -562,11 +562,11 @@ function getDashboardHTML() {
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
-        <!-- Option 1: Upload Existing PEM -->
-        <button id="upload-pem-btn" type="button" onclick="document.getElementById('key-file-input').click()" class="auth-btn" style="background: var(--accent-blue); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
+        <!-- Option 1: Upload Existing PEM (Native Label trigger) -->
+        <label for="key-file-input" class="auth-btn" style="background: var(--accent-blue); padding: 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; user-select: none;">
           📁 Upload Private Key (.pem file)
-        </button>
-        <input type="file" id="key-file-input" style="display: none;" accept=".pem,.key,.txt,*">
+        </label>
+        <input type="file" id="key-file-input" style="position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none;" accept=".pem,.key,.txt,*">
 
         <div style="display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; margin: 4px 0;">
           <div style="flex: 1; border-bottom: 1px solid var(--border-color);"></div>
@@ -741,23 +741,28 @@ function getDashboardHTML() {
       authenticateWithPrivateKey(devicePrivKey);
     }
 
-    // 1. Option 1: Upload Private Key PEM File
-    const uploadPemBtn = document.getElementById('upload-pem-btn');
+    // 1. Option 1: Upload Private Key PEM File (Native Label Trigger)
     const keyFileInput = document.getElementById('key-file-input');
 
-    uploadPemBtn.addEventListener('click', (e) => {
-      e.preventDefault();
+    keyFileInput.addEventListener('click', () => {
       keyFileInput.value = '';
-      keyFileInput.click();
     });
 
     keyFileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      alert('📄 File selected: "' + file.name + '". Processing cryptographic authentication...');
       const reader = new FileReader();
       reader.onload = async (event) => {
-        const privKeyPem = event.target.result.trim();
-        await authenticateWithPrivateKey(privKeyPem);
+        try {
+          const privKeyPem = event.target.result.trim();
+          await authenticateWithPrivateKey(privKeyPem);
+        } catch (err) {
+          alert('❌ Key Read Error: ' + err.message);
+        }
+      };
+      reader.onerror = () => {
+        alert('❌ Failed to read selected file!');
       };
       reader.readAsText(file);
     });
