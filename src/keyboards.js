@@ -55,11 +55,13 @@ const get18PlusVerificationKeyboard = () => {
 };
 
 /**
- * Share to Unlock Inline Keyboard (Share Callback & Verify)
+ * Share to Unlock Inline Keyboard (Direct Telegram Share URL & Verify)
  */
-const getShareToUnlockKeyboard = () => {
+const getShareToUnlockKeyboard = (botUsername = 'MalluMatchBot') => {
+  const shareText = encodeURIComponent(`🌴 Join Mallu Chat - #1 Anonymous Random Chat Bot for Malayalis! Connect 100% anonymously for text & photo chat: https://t.me/${botUsername}`);
+  const shareUrl = `https://t.me/share/url?url=${shareText}`;
   return Markup.inlineKeyboard([
-    [Markup.button.callback('📲 Share to 2 Groups to Unlock Chat', 'click_share')],
+    [Markup.button.url('📲 Share to 2 Groups to Unlock Chat', shareUrl)],
     [Markup.button.callback('✅ Verify & Start Chatting', 'verify_shares')]
   ]);
 };

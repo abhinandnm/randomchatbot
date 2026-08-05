@@ -195,50 +195,28 @@ function setupBotHandlers(bot) {
   });
 
   /**
-   * Click Share Action Callback - Tracks share button tap
+   * Legacy Click Share Action Handler (Fallback)
    */
   bot.action('click_share', async (ctx) => {
-    const userId = ctx.from.id;
-    shareClickedUsers.add(userId);
-    await ctx.answerCbQuery('📲 Opening Telegram Share...');
-
     const me = await bot.telegram.getMe().catch(() => ({ first_name: 'Mallu Chat', username: 'MalluMatchBot' }));
     const activeUsername = me.username || 'MalluMatchBot';
+    await ctx.answerCbQuery('📲 Opening Telegram Group Picker...');
 
-    const shareText = encodeURIComponent(`🌴 Join Mallu Chat - #1 Anonymous Random Chat Bot for Malayalis! Connect 100% anonymously for text & photo chat: https://t.me/${activeUsername}`);
-    const shareUrl = `https://t.me/share/url?url=${shareText}`;
-
-    const text = 
-      `📲 *STEP 1 COMPLETE: SHARE TO 2 GROUPS*\n\n` +
-      `Tap **↗️ Open Telegram Group Picker** below to send the bot link to 2 groups/friends, then click **✅ Verify & Start Chatting**!`;
-
-    return ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        [Markup.button.url('↗️ Open Telegram Group Picker', shareUrl)],
-        [Markup.button.callback('✅ Verify & Start Chatting', 'verify_shares')]
-      ])
-    });
+    return ctx.editMessageText(
+      `📲 *SHARE TO 2 GROUPS TO UNLOCK*\n\n` +
+      `Tap **📲 Share to 2 Groups to Unlock Chat** below to open the Telegram group picker, then click **✅ Verify & Start Chatting**!`,
+      {
+        parse_mode: 'Markdown',
+        ...getShareToUnlockKeyboard(activeUsername)
+      }
+    );
   });
 
   /**
-   * Verify Shares Callback - Strictly checks if user tapped Share button first
+   * Verify Shares Callback - Unlocks user chat and displays main menu
    */
   bot.action('verify_shares', async (ctx) => {
     const userId = ctx.from.id;
-
-    if (!shareClickedUsers.has(userId)) {
-      await ctx.answerCbQuery('⚠️ Access Denied! Please tap Share to 2 Groups first!', { show_alert: true });
-      const me = await bot.telegram.getMe().catch(() => ({ first_name: 'Mallu Chat', username: 'MalluMatchBot' }));
-      const activeUsername = me.username || 'MalluMatchBot';
-      return ctx.reply(
-        '⚠️ *ACCESS DENIED*\n\nYou MUST tap **📲 Share to 2 Groups to Unlock Chat** first before clicking verify!',
-        {
-          parse_mode: 'Markdown',
-          ...getShareToUnlockKeyboard(activeUsername)
-        }
-      );
-    }
 
     unlockedShareUsers.add(userId);
     saveSetToFile(UNLOCKED_FILE, unlockedShareUsers);
